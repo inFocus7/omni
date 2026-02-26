@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/go-github/v83/github"
 	"github.com/infocus7/dashie/pkg/utils"
@@ -15,26 +16,33 @@ import (
 
 // TODO: In-memory cache of results with a 30min TTL to avoid too many requests to the GitHub API?
 
+// NOTE: Your GitHub PAT must have `repo` scope (not just `public_repo`) to include private repositories in search results.
+
 type Client struct {
-	ctx    context.Context
 	client *github.Client
 }
 
-func NewClient(ctx context.Context) (*Client, error) {
+func NewClient() (*Client, error) {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		return nil, errors.New("github PAT token is not set through GITHUB_AUTH_TOKEN")
+		return nil, errors.New("GITHUB_TOKEN is not set (must have 'repo' scope to include private repositories)")
 	}
 
 	client := github.NewClient(nil).WithAuthToken(token)
 	return &Client{
-		ctx:    ctx,
 		client: client,
 	}, nil
 }
 
-func (c *Client) FetchPullRequests() ([]*github.Issue, error) {
-	if c.ctx == nil {
+func sinceQualifier(since time.Time) string {
+	if since.IsZero() {
+		return ""
+	}
+	return " created:>=" + since.Format("2006-01-02")
+}
+
+func (c *Client) FetchPullRequests(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
 		return nil, utils.NilContextError
 	}
 
@@ -42,8 +50,9 @@ func (c *Client) FetchPullRequests() ([]*github.Issue, error) {
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
+	query := "is:pr author:@me" + sinceQualifier(since)
 	for {
-		result, resp, err := c.client.Search.Issues(c.ctx, "is:pr author:@me", opts)
+		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -56,8 +65,8 @@ func (c *Client) FetchPullRequests() ([]*github.Issue, error) {
 	return allIssues, nil
 }
 
-func (c *Client) FetchReviews() ([]*github.Issue, error) {
-	if c.ctx == nil {
+func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
 		return nil, utils.NilContextError
 	}
 
@@ -65,8 +74,9 @@ func (c *Client) FetchReviews() ([]*github.Issue, error) {
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
+	query := "is:pr reviewed-by:@me" + sinceQualifier(since)
 	for {
-		result, resp, err := c.client.Search.Issues(c.ctx, "is:pr reviewed-by:@me", opts)
+		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -79,8 +89,8 @@ func (c *Client) FetchReviews() ([]*github.Issue, error) {
 	return allIssues, nil
 }
 
-func (c *Client) FetchApprovals() ([]*github.Issue, error) {
-	if c.ctx == nil {
+func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
 		return nil, utils.NilContextError
 	}
 
@@ -88,8 +98,9 @@ func (c *Client) FetchApprovals() ([]*github.Issue, error) {
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
+	query := "is:pr review:approved reviewed-by:@me" + sinceQualifier(since)
 	for {
-		result, resp, err := c.client.Search.Issues(c.ctx, "is:pr review:approved reviewed-by:@me", opts)
+		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -102,15 +113,15 @@ func (c *Client) FetchApprovals() ([]*github.Issue, error) {
 	return allIssues, nil
 }
 
-func (c *Client) FetchFollowers() ([]*github.User, error) {
-	if c.ctx == nil {
+func (c *Client) FetchFollowers(ctx context.Context) ([]*github.User, error) {
+	if ctx == nil {
 		return nil, utils.NilContextError
 	}
 
 	var allUsers []*github.User
 	opts := &github.ListOptions{PerPage: 100}
 	for {
-		users, resp, err := c.client.Users.ListFollowers(c.ctx, "", opts)
+		users, resp, err := c.client.Users.ListFollowers(ctx, "", opts)
 		if err != nil {
 			return nil, err
 		}

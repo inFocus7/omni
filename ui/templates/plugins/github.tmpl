@@ -1,0 +1,65 @@
+={{define "github"}}
+<div class="plugin">
+    <h2>GitHub</h2>
+
+    <h3>Your Pull Requests ({{len .PullRequests}})</h3>
+    <table>
+        <thead>
+            <tr><th>Title</th><th>State</th></tr>
+        </thead>
+        <tbody>
+            {{range .PullRequests}}
+            <tr>
+                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
+                <td>{{.State}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="2">No pull requests found.</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+
+    <h3>Reviews ({{len .Reviews}})</h3>
+    <table>
+        <thead>
+            <tr><th>Title</th><th>State</th></tr>
+        </thead>
+        <tbody>
+            {{range .Reviews}}
+            <tr>
+                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
+                <td>{{.State}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="2">No reviews found.</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+
+    <h3>Approvals ({{len .Approvals}})</h3>
+    <table>
+        <thead>
+            <tr><th>Title</th><th>State</th></tr>
+        </thead>
+        <tbody>
+            {{range .Approvals}}
+            <tr>
+                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
+                <td>{{.State}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="2">No approvals found.</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+
+    <h3>Followers ({{len .Followers}})</h3>
+    <ul>
+        {{range .Followers}}
+        <li><a href="{{.HTMLURL}}" target="_blank">{{.Login}}</a></li>
+        {{else}}
+        <li>No followers yet.</li>
+        {{end}}
+    </ul>
+</div>
+{{end}}

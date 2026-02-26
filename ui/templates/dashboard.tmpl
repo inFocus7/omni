@@ -1,10 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Dashboard</title>
-    </head>
-    <body>
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2rem; }
+        .header { display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1.5rem; }
+        .header h1 { margin: 0; }
+        .filters { display: flex; gap: 0.4rem; }
+        .filters a {
+            padding: 0.3rem 0.75rem;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #333;
+            text-decoration: none;
+            background: #fff;
+        }
+        .filters a:hover { background: #f0f0f0; border-color: #999; }
+        .filters a.active { background: #0969da; color: #fff; border-color: #0969da; }
+        .plugins { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; }
+        .plugin { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+        .plugin h2 { margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; }
+        th { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; color: #555; }
+        a { color: #0969da; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul { padding-left: 1.2rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
         <h1>Dashboard</h1>
-    </body>
+        <nav class="filters">
+            <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>Last 1 day</a>
+            <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>Last 7 days</a>
+            <a href="/?filter=1m"  {{if eq .ActiveFilter "1m"}}class="active"{{end}}>Last month</a>
+            <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>YTD</a>
+            <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>All time</a>
+        </nav>
+    </div>
+    <div class="plugins">
+        {{template "github" .GitHub}}
+    </div>
+</body>
 </html>
