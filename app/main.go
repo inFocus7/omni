@@ -20,6 +20,7 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.Static("/static", "./ui/static")
 
 	r.GET("/", func(c *gin.Context) {
 		filter := c.DefaultQuery("filter", "7d")
