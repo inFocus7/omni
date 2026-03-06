@@ -3,21 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard</title>
+    <title>dashie</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;700&family=Instrument+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header class="site-header">
-        <h1>Dashboard</h1>
-        <nav class="filters" id="filters">
-            <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>Last 1 day</a>
-            <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>Last 7 days</a>
-            <a href="/?filter=1m"  {{if eq .ActiveFilter "1m"}}class="active"{{end}}>Last month</a>
-            <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>YTD</a>
-            <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>All time</a>
-        </nav>
+        <span></span>
+        <h1>dashie</h1>
+        <span></span>
     </header>
     <main class="plugins">
+        <nav class="filters" id="filters">
+            <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
+            <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
+            <a href="/?filter=1m"  {{if eq .ActiveFilter "1m"}}class="active"{{end}}>1m</a>
+            <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
+            <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
+        </nav>
         {{template "github" .GitHub}}
     </main>
     <script src="/static/app.js"></script>

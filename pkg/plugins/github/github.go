@@ -4,23 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
+
+	"os"
 
 	"github.com/google/go-github/v83/github"
 	"github.com/infocus7/dashie/internal/cache"
 	"github.com/infocus7/dashie/pkg/utils"
-
-	"os"
+	"golang.org/x/sync/errgroup"
 )
 
-// Note: I used the GitHub repository for quick setup.
-// I plan on moving to doing graphql queries with a custom client to get more fine-tuned control over the requests and responses.
-
-// TODO: In-memory cache of results with a 30min TTL to avoid too many requests to the GitHub API?
+type PRCodeStats struct {
+	TotalAdditions int
+	TotalDeletions int
+}
 
 type Client struct {
-	client *github.Client
-	cache  *cache.SimpleCache[[]*github.Issue]
+	client     *github.Client
+	cache      *cache.SimpleCache[[]*github.Issue]
+	countCache *cache.SimpleCache[int]
+	statsCache *cache.SimpleCache[PRCodeStats]
 }
 
 func NewClient() (*Client, error) {
@@ -31,8 +36,10 @@ func NewClient() (*Client, error) {
 
 	client := github.NewClient(nil).WithAuthToken(token)
 	return &Client{
-		client: client,
-		cache:  cache.NewSimpleCache[[]*github.Issue](cache.DefaultTTL),
+		client:     client,
+		cache:      cache.NewSimpleCache[[]*github.Issue](cache.DefaultTTL),
+		countCache: cache.NewSimpleCache[int](cache.DefaultTTL),
+		statsCache: cache.NewSimpleCache[PRCodeStats](cache.DefaultTTL),
 	}, nil
 }
 
@@ -48,13 +55,223 @@ func (c *Client) FetchPullRequests(ctx context.Context, since time.Time) ([]*git
 		return nil, utils.NilContextError
 	}
 
-	var allIssues []*github.Issue
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr author:@me" + sinceQualifier(since)
+	allIssues, err := c.searchIssues(ctx, "prs", query, opts)
+	if err != nil {
+		return nil, err
+	}
 
-	key := createCacheKey("prs", query, opts)
+	return allIssues, nil
+}
+
+func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr reviewed-by:@me" + sinceQualifier(since)
+	allIssues, err := c.searchIssues(ctx, "reviews", query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return allIssues, nil
+}
+
+func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr review:approved reviewed-by:@me" + sinceQualifier(since)
+	allIssues, err := c.searchIssues(ctx, "approvals", query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return allIssues, nil
+}
+
+func (c *Client) FetchMergedPRs(ctx context.Context, since time.Time) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr is:merged author:@me" + sinceQualifier(since)
+	allIssues, err := c.searchIssues(ctx, "merged", query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return allIssues, nil
+}
+
+func (c *Client) FetchOpenPRs(ctx context.Context) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr is:open author:@me"
+	allIssues, err := c.searchIssues(ctx, "open", query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return allIssues, nil
+}
+
+// FetchReviewRequested returns PRs where review is currently requested from the authenticated user.
+func (c *Client) FetchReviewRequested(ctx context.Context) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr is:open review-requested:@me"
+	allIssues, err := c.searchIssues(ctx, "review-requested", query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return allIssues, nil
+}
+
+// FetchPRCodeStats fetches additions/deletions for each PR via individual API calls.
+// Results are cached under cacheKey.
+func (c *Client) FetchPRCodeStats(ctx context.Context, prs []*github.Issue, cacheKey string) (PRCodeStats, error) {
+	if cached, err := c.statsCache.Get(cacheKey); err == nil {
+		fmt.Println("stats cache hit")
+		return cached, nil
+	}
+	fmt.Println("stats cache miss")
+
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+
+	var (
+		mu         sync.Mutex
+		totalAdded int
+		totalDel   int
+	)
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	for _, pr := range prs {
+		pr := pr
+		if pr.RepositoryURL == nil || pr.Number == nil {
+			continue
+		}
+
+		parts := strings.Split(*pr.RepositoryURL, "/")
+		if len(parts) < 2 {
+			continue
+		}
+		owner := parts[len(parts)-2]
+		repo := parts[len(parts)-1]
+		number := *pr.Number
+
+		sem <- struct{}{}
+		g.Go(func() error {
+			defer func() { <-sem }()
+
+			result, _, err := c.client.PullRequests.Get(gctx, owner, repo, number)
+			if err != nil {
+				return err
+			}
+
+			mu.Lock()
+			if result.Additions != nil {
+				totalAdded += *result.Additions
+			}
+			if result.Deletions != nil {
+				totalDel += *result.Deletions
+			}
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return PRCodeStats{}, err
+	}
+
+	stats := PRCodeStats{
+		TotalAdditions: totalAdded,
+		TotalDeletions: totalDel,
+	}
+
+	if err := c.statsCache.Set(cacheKey, stats); err != nil {
+		fmt.Println("error setting stats cache:", err)
+	}
+
+	return stats, nil
+}
+
+// FetchCount returns the total result count for a query using a single lightweight API call.
+// Only one result is fetched; the total_count field covers the full match set.
+func (c *Client) FetchCount(ctx context.Context, query string) (int, error) {
+	if ctx == nil {
+		return 0, utils.NilContextError
+	}
+
+	key := "count:" + query
+	if cached, err := c.countCache.Get(key); err == nil {
+		fmt.Println("count cache hit")
+		return cached, nil
+	}
+	fmt.Println("count cache miss")
+
+	opts := &github.SearchOptions{ListOptions: github.ListOptions{PerPage: 1}}
+	result, _, err := c.client.Search.Issues(ctx, query, opts)
+	if err != nil {
+		return 0, err
+	}
+
+	count := result.GetTotal()
+	if err := c.countCache.Set(key, count); err != nil {
+		fmt.Println("error setting count cache:", err)
+	}
+	return count, nil
+}
+
+// FetchAssignedIssues returns open issues currently assigned to the authenticated user.
+func (c *Client) FetchAssignedIssues(ctx context.Context) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:issue is:open assignee:@me"
+
+	allIssues, err := c.searchIssues(ctx, "assigned", query, opts)
+	if err != nil {
+		return nil, err
+	}
+	return allIssues, nil
+}
+
+func (c *Client) searchIssues(ctx context.Context, cachePrefix, query string, opts *github.SearchOptions) ([]*github.Issue, error) {
+	var allIssues []*github.Issue
+	key := createCacheKey(cachePrefix, query, opts)
 
 	if cached, err := c.cache.Get(key); err == nil {
 		fmt.Println("cache hit")
@@ -77,103 +294,7 @@ func (c *Client) FetchPullRequests(ctx context.Context, since time.Time) ([]*git
 	if err := c.cache.Set(key, allIssues); err != nil {
 		fmt.Println("error setting cache:", err) // no need to panic
 	}
-
 	return allIssues, nil
-}
-
-func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.Issue, error) {
-	if ctx == nil {
-		return nil, utils.NilContextError
-	}
-
-	var allIssues []*github.Issue
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-	query := "is:pr reviewed-by:@me" + sinceQualifier(since)
-
-	key := createCacheKey("reviews", query, opts)
-
-	if cached, err := c.cache.Get(key); err == nil {
-		fmt.Println("cache hit")
-		return cached, nil
-	}
-	fmt.Println("cache miss")
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			return nil, err
-		}
-		allIssues = append(allIssues, result.Issues...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-
-	if err := c.cache.Set(key, allIssues); err != nil {
-		fmt.Println("error setting cache:", err)
-	}
-	return allIssues, nil
-}
-
-func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github.Issue, error) {
-	if ctx == nil {
-		return nil, utils.NilContextError
-	}
-
-	var allIssues []*github.Issue
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-	query := "is:pr review:approved reviewed-by:@me" + sinceQualifier(since)
-
-	key := createCacheKey("approvals", query, opts)
-
-	if cached, err := c.cache.Get(key); err == nil {
-		fmt.Println("cache hit")
-		return cached, nil
-	}
-	fmt.Println("cache miss")
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			return nil, err
-		}
-		allIssues = append(allIssues, result.Issues...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-
-	if err := c.cache.Set(key, allIssues); err != nil {
-		fmt.Println("error setting cache:", err)
-	}
-	return allIssues, nil
-}
-
-func (c *Client) FetchFollowers(ctx context.Context) ([]*github.User, error) {
-	if ctx == nil {
-		return nil, utils.NilContextError
-	}
-
-	var allUsers []*github.User
-	opts := &github.ListOptions{PerPage: 100}
-	for {
-		users, resp, err := c.client.Users.ListFollowers(ctx, "", opts)
-		if err != nil {
-			return nil, err
-		}
-		allUsers = append(allUsers, users...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-	return allUsers, nil
 }
 
 func createCacheKey(prefix string, query string, opts *github.SearchOptions) string {

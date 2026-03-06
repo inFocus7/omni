@@ -31,13 +31,34 @@ func main() {
 			return
 		}
 
-		dash, err := ui.Dashboard()
+		pages, err := ui.Pages()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		if err := dash.Execute(c.Writer, data); err != nil {
+		if err := pages.ExecuteTemplate(c.Writer, "dashboard.tmpl", data); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	})
+
+	r.GET("/github", func(c *gin.Context) {
+		filter := c.DefaultQuery("filter", "7d")
+
+		data, err := pm.FetchGitHubDetail(filter)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		pages, err := ui.Pages()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := pages.ExecuteTemplate(c.Writer, "github_page.tmpl", data); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

@@ -1,65 +1,79 @@
-={{define "github"}}
+{{define "github"}}
 <div class="plugin">
-    <h2>GitHub</h2>
+    <p class="plugin-label">
+        <svg class="plugin-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+        GitHub
+    </p>
 
-    <h3>Your Pull Requests ({{len .PullRequests}})</h3>
-    <table>
-        <thead>
-            <tr><th>Title</th><th>State</th></tr>
-        </thead>
-        <tbody>
-            {{range .PullRequests}}
-            <tr>
-                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
-                <td>{{.State}}</td>
-            </tr>
-            {{else}}
-            <tr><td colspan="2">No pull requests found.</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <p class="section-label">activity · {{.Filter}}</p>
 
-    <h3>Reviews ({{len .Reviews}})</h3>
-    <table>
-        <thead>
-            <tr><th>Title</th><th>State</th></tr>
-        </thead>
-        <tbody>
-            {{range .Reviews}}
-            <tr>
-                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
-                <td>{{.State}}</td>
-            </tr>
-            {{else}}
-            <tr><td colspan="2">No reviews found.</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div class="stat-row">
+        <div class="stat-card" data-kind="authored">
+            <span class="stat-num">{{.AuthoredCount}}</span>
+            <span class="stat-label">authored</span>
+        </div>
+        <div class="stat-card" data-kind="reviewed">
+            <span class="stat-num">{{.ReviewedCount}}</span>
+            <span class="stat-label">reviewed</span>
+        </div>
+        <div class="stat-card" data-kind="approved">
+            <span class="stat-num">{{.ApprovedCount}}</span>
+            <span class="stat-label">approved</span>
+        </div>
+    </div>
 
-    <h3>Approvals ({{len .Approvals}})</h3>
-    <table>
-        <thead>
-            <tr><th>Title</th><th>State</th></tr>
-        </thead>
-        <tbody>
-            {{range .Approvals}}
-            <tr>
-                <td><a href="{{.HTMLURL}}" target="_blank">{{.Title}}</a></td>
-                <td>{{.State}}</td>
-            </tr>
-            {{else}}
-            <tr><td colspan="2">No approvals found.</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div class="ratio-callout">
+        <span class="ratio-number">{{.Ratio}}</span>
+        <div class="ratio-tags">
+            <span class="ratio-tag">author</span>
+            <span class="ratio-sep">·</span>
+            <span class="ratio-tag">reviewer</span>
+        </div>
+        <div class="approval-line">
+            <span class="approval-rate">{{.ApprovalRate}}</span>
+            <span>approval rate</span>
+        </div>
+    </div>
 
-    <h3>Followers ({{len .Followers}})</h3>
-    <ul>
-        {{range .Followers}}
-        <li><a href="{{.HTMLURL}}" target="_blank">{{.Login}}</a></li>
-        {{else}}
-        <li>No followers yet.</li>
-        {{end}}
-    </ul>
+    <div class="gauge-section">
+        <div class="gauge-axis">
+            <span>author</span>
+            <span>reviewer</span>
+        </div>
+        <div class="gauge-track" style="--authored-pct: {{printf "%.1f" .AuthoredPct}}">
+            <div class="gauge-marker" style="left: {{printf "%.1f" .ReviewedPct}}%"></div>
+        </div>
+    </div>
+
+    <div class="stat-row" style="margin-top: 3.5rem;">
+        <div class="stat-card" data-kind="merged">
+            <span class="stat-num">{{.MergedCount}}</span>
+            <span class="stat-label">merged · {{.MergeRate}}</span>
+        </div>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <p class="section-label">right now</p>
+
+    <div class="stat-row stat-row-3col">
+        <a class="stat-card stat-card-link" href="/github#open-prs" data-kind="open">
+            <span class="stat-num">{{.OpenCount}}</span>
+            <span class="stat-label">open</span>
+        </a>
+        <a class="stat-card stat-card-link" href="/github#review-debt" data-kind="review-debt">
+            <span class="stat-num">{{.ReviewDebt}}</span>
+            <span class="stat-label stat-label-tip">
+                review debt
+                <span class="tip">open only · closed &amp; merged excluded</span>
+            </span>
+        </a>
+        <a class="stat-card stat-card-link" href="/github#assigned" data-kind="assigned">
+            <span class="stat-num">{{.AssignedCount}}</span>
+            <span class="stat-label">assigned</span>
+        </a>
+    </div>
 </div>
 {{end}}
