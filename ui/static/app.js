@@ -22,7 +22,7 @@
 
     // Apply default sort if one is marked
     const defaultTh = table.querySelector('th[data-sort-default]');
-    if (defaultTh) sort(defaultTh, table, true);
+    if (defaultTh) sort(defaultTh, table, false);
 
     headers.forEach(th => {
       th.addEventListener('click', () => {

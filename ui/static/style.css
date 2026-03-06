@@ -14,6 +14,17 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Form elements don't inherit body font/color/background by default in browsers */
+input, button, select, textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  border: none;
+}
+
 body {
   font-family: var(--font-ui);
   font-size: 0.9375rem;
@@ -166,7 +177,34 @@ body {
   color: var(--text);
 }
 
-.stat-card[data-kind="approved"] .stat-num {
+.stat-card-dual {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 5.5rem;
+}
+
+.stat-secondary {
+  align-self: flex-end;
+  text-align: right;
+  opacity: 0.72;
+}
+
+.stat-sec-num {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--accent);
+}
+
+.stat-sec-label {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--accent);
 }
 
@@ -359,6 +397,36 @@ a:hover { text-decoration: underline; }
   color: var(--text);
 }
 
+/* Reusable pill input — matches the app's existing pill language */
+.app-input {
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 0.45rem 1.05rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.app-input::placeholder {
+  color: var(--muted);
+  font-weight: 300;
+}
+
+.app-input:focus {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+/* Allow .back-link on <button> elements */
+button.back-link {
+  cursor: pointer;
+}
+
 .detail-stats {
   display: flex;
   align-items: baseline;
@@ -422,6 +490,10 @@ a:hover { text-decoration: underline; }
   user-select: none;
   white-space: nowrap;
   transition: color 0.15s;
+}
+
+.detail-table th:not(:first-child) {
+  padding-left: 1.5rem;
 }
 
 .detail-table th:hover { color: var(--text); }
@@ -536,4 +608,42 @@ a:hover { text-decoration: underline; }
 
 .stat-label-tip:hover .tip {
   opacity: 1;
+}
+
+/* ── Settings page ────────────────────────────────────────── */
+.entry-code {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.status-type-org  { color: var(--accent);  background: rgba(230, 51, 41, 0.1); }
+.status-type-repo { color: var(--muted);   background: rgba(255, 255, 255, 0.05); }
+
+.entry-action { text-align: right; }
+
+.entry-remove {
+  display: flex;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.entry-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.entry-remove:hover { color: var(--remove); }
+
+.watched-add-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1.5rem;
 }

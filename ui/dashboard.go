@@ -15,7 +15,7 @@ var templatesDir = filepath.Join("ui", "templates")
 func funcMap() template.FuncMap {
 	return template.FuncMap{
 		// repoFromURL extracts "owner/repo" from a GitHub API repository URL.
-		// e.g. "https://api.github.com/repos/acme/myrepo" → "acme/myrepo"
+		// e.g. "https://api.github.com/repos/acme/myrepo" -> "acme/myrepo"
 		"repoFromURL": func(url string) string {
 			parts := strings.Split(url, "/repos/")
 			if len(parts) < 2 {
@@ -25,7 +25,7 @@ func funcMap() template.FuncMap {
 		},
 
 		// repoHTMLURL converts a GitHub API repository URL to its web URL.
-		// e.g. "https://api.github.com/repos/acme/myrepo" → "https://github.com/acme/myrepo"
+		// e.g. "https://api.github.com/repos/acme/myrepo" -> "https://github.com/acme/myrepo"
 		"repoHTMLURL": func(url string) string {
 			parts := strings.Split(url, "/repos/")
 			if len(parts) < 2 {
@@ -35,7 +35,7 @@ func funcMap() template.FuncMap {
 		},
 
 		// repoAvatarURL returns the avatar URL for the repo owner (user or org).
-		// e.g. "https://api.github.com/repos/acme/myrepo" → "https://avatars.githubusercontent.com/acme?s=20"
+		// e.g. "https://api.github.com/repos/acme/myrepo" -> "https://avatars.githubusercontent.com/acme?s=20"
 		"repoAvatarURL": func(url string) string {
 			parts := strings.Split(url, "/repos/")
 			if len(parts) < 2 {
@@ -78,6 +78,26 @@ func funcMap() template.FuncMap {
 		// isDraft safely dereferences a *bool draft field.
 		"isDraft": func(b *bool) bool {
 			return b != nil && *b
+		},
+
+		// watchedName strips the qualifier prefix from a watched entry.
+		// "org:myorg" → "myorg", "repo:owner/repo" -> "owner/repo"
+		"watchedName": func(s string) string {
+			if after, ok := strings.CutPrefix(s, "org:"); ok {
+				return after
+			}
+			if after, ok := strings.CutPrefix(s, "repo:"); ok {
+				return after
+			}
+			return s
+		},
+
+		// watchedType returns "org" or "repo" for a watched entry qualifier.
+		"watchedType": func(s string) string {
+			if strings.HasPrefix(s, "org:") {
+				return "org"
+			}
+			return "repo"
 		},
 	}
 }

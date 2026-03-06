@@ -9,18 +9,26 @@
 
     <p class="section-label">activity · {{.Filter}}</p>
 
-    <div class="stat-row">
-        <div class="stat-card" data-kind="authored">
-            <span class="stat-num">{{.AuthoredCount}}</span>
-            <span class="stat-label">authored</span>
+    <div class="stat-row stat-row-2col">
+        <div class="stat-card stat-card-dual" data-kind="authored">
+            <div class="stat-primary">
+                <span class="stat-num">{{.AuthoredCount}}</span>
+                <span class="stat-label">authored</span>
+            </div>
+            <div class="stat-secondary">
+                <span class="stat-sec-num">{{.MergedCount}}</span>
+                <span class="stat-sec-label">merged</span>
+            </div>
         </div>
-        <div class="stat-card" data-kind="reviewed">
-            <span class="stat-num">{{.ReviewedCount}}</span>
-            <span class="stat-label">reviewed</span>
-        </div>
-        <div class="stat-card" data-kind="approved">
-            <span class="stat-num">{{.ApprovedCount}}</span>
-            <span class="stat-label">approved</span>
+        <div class="stat-card stat-card-dual" data-kind="reviewed">
+            <div class="stat-primary">
+                <span class="stat-num">{{.ReviewedCount}}</span>
+                <span class="stat-label">reviewed</span>
+            </div>
+            <div class="stat-secondary">
+                <span class="stat-sec-num">{{.ApprovedCount}}</span>
+                <span class="stat-sec-label">approved</span>
+            </div>
         </div>
     </div>
 
@@ -44,13 +52,6 @@
         </div>
         <div class="gauge-track" style="--authored-pct: {{printf "%.1f" .AuthoredPct}}">
             <div class="gauge-marker" style="left: {{printf "%.1f" .ReviewedPct}}%"></div>
-        </div>
-    </div>
-
-    <div class="stat-row" style="margin-top: 3.5rem;">
-        <div class="stat-card" data-kind="merged">
-            <span class="stat-num">{{.MergedCount}}</span>
-            <span class="stat-label">merged · {{.MergeRate}}</span>
         </div>
     </div>
 

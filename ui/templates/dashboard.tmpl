@@ -13,13 +13,13 @@
     <header class="site-header">
         <span></span>
         <h1>dashie</h1>
-        <span></span>
+        <a href="/settings" class="back-link">settings</a>
     </header>
     <main class="plugins">
         <nav class="filters" id="filters">
             <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
             <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
-            <a href="/?filter=1m"  {{if eq .ActiveFilter "1m"}}class="active"{{end}}>1m</a>
+            <a href="/?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
             <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
             <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
         </nav>

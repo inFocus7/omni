@@ -251,6 +251,24 @@ func (c *Client) FetchCount(ctx context.Context, query string) (int, error) {
 	return count, nil
 }
 
+// FetchTeamOpenPRs returns open PRs across watched orgs/repos.
+// watched entries must be valid GitHub Search qualifiers (e.g. "org:myorg", "repo:owner/repo").
+func (c *Client) FetchTeamOpenPRs(ctx context.Context, watched []string) ([]*github.Issue, error) {
+	if ctx == nil {
+		return nil, utils.NilContextError
+	}
+	if len(watched) == 0 {
+		return nil, nil
+	}
+
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	query := "is:pr is:open " + strings.Join(watched, " ")
+	cacheKey := "team-prs:" + strings.Join(watched, ",")
+	return c.searchIssues(ctx, cacheKey, query, opts)
+}
+
 // FetchAssignedIssues returns open issues currently assigned to the authenticated user.
 func (c *Client) FetchAssignedIssues(ctx context.Context) ([]*github.Issue, error) {
 	if ctx == nil {

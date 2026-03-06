@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-github/v83/github"
 	ghplugin "github.com/infocus7/dashie/pkg/plugins/github"
+	"github.com/infocus7/dashie/pkg/settings"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -37,6 +38,8 @@ type GitHubDetailData struct {
 	OpenPRs         []*github.Issue
 	ReviewRequested []*github.Issue
 	AssignedIssues  []*github.Issue
+	TeamPRs         []*github.Issue
+	WatchedEntries  []string
 	TotalAdded      string
 	TotalRemoved    string
 }
@@ -49,9 +52,10 @@ type DashboardData struct {
 type PluginManager struct {
 	ctx          context.Context
 	githubClient *ghplugin.Client
+	settings     *settings.Settings
 }
 
-func NewPluginManager(ctx context.Context) (*PluginManager, error) {
+func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager, error) {
 	ghClient, err := ghplugin.NewClient()
 	if err != nil {
 		return nil, err
@@ -60,6 +64,7 @@ func NewPluginManager(ctx context.Context) (*PluginManager, error) {
 	return &PluginManager{
 		ctx:          ctx,
 		githubClient: ghClient,
+		settings:     s,
 	}, nil
 }
 
@@ -72,7 +77,7 @@ func SinceFromFilter(filter string) time.Time {
 		return now.AddDate(0, 0, -1)
 	case "7d":
 		return now.AddDate(0, 0, -7)
-	case "1m":
+	case "1mo":
 		return now.AddDate(0, -1, 0)
 	case "ytd":
 		return time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
@@ -88,7 +93,7 @@ func sinceQualifier(since time.Time) string {
 	return " created:>=" + since.Format("2006-01-02")
 }
 
-// formatInt formats an integer with comma separators (e.g. 4231 → "4,231").
+// formatInt formats an integer with comma separators (e.g. 4231 -> "4,231").
 func formatInt(n int) string {
 	s := strconv.Itoa(n)
 	if len(s) <= 3 {
@@ -224,11 +229,14 @@ func (pm *PluginManager) FetchGitHubDetail(filter string) (*GitHubDetailData, er
 
 	g, ctx := errgroup.WithContext(pm.ctx)
 
+	watched := pm.settings.GitHub.Watched
+
 	var (
 		prs             []*github.Issue
 		openPRs         []*github.Issue
 		reviewRequested []*github.Issue
 		assignedIssues  []*github.Issue
+		teamPRs         []*github.Issue
 	)
 
 	g.Go(func() error {
@@ -251,6 +259,11 @@ func (pm *PluginManager) FetchGitHubDetail(filter string) (*GitHubDetailData, er
 		assignedIssues, err = pm.githubClient.FetchAssignedIssues(ctx)
 		return err
 	})
+	g.Go(func() error {
+		var err error
+		teamPRs, err = pm.githubClient.FetchTeamOpenPRs(ctx, watched)
+		return err
+	})
 
 	if err := g.Wait(); err != nil {
 		return nil, err
@@ -267,6 +280,8 @@ func (pm *PluginManager) FetchGitHubDetail(filter string) (*GitHubDetailData, er
 		OpenPRs:         openPRs,
 		ReviewRequested: reviewRequested,
 		AssignedIssues:  assignedIssues,
+		TeamPRs:         teamPRs,
+		WatchedEntries:  watched,
 		TotalAdded:      "+" + formatInt(stats.TotalAdditions),
 		TotalRemoved:    "-" + formatInt(stats.TotalDeletions),
 	}, nil

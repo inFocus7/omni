@@ -23,7 +23,7 @@
             </svg>
             GitHub
         </p>
-        <span></span>
+        <a href="/settings" class="back-link">settings</a>
     </header>
     <main class="plugins">
         <div class="plugin">
@@ -31,7 +31,7 @@
             <nav class="filters" id="filters">
                 <a href="/github?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
                 <a href="/github?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
-                <a href="/github?filter=1m"  {{if eq .ActiveFilter "1m"}}class="active"{{end}}>1m</a>
+                <a href="/github?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
                 <a href="/github?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
                 <a href="/github?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
             </nav>
@@ -170,6 +170,48 @@
                 <p class="empty-state">no assigned issues</p>
                 {{end}}
             </section>
+
+            {{if .WatchedEntries}}
+            <div class="section-divider"></div>
+
+            <section class="detail-section" id="team-prs">
+                <p class="section-label">team prs</p>
+                {{if .TeamPRs}}
+                <table class="detail-table" data-sortable>
+                    <thead>
+                        <tr>
+                            <th data-col="title">title</th>
+                            <th data-col="repo">repo</th>
+                            <th data-col="author">author</th>
+                            <th data-col="age" data-sort-default>age</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .TeamPRs}}
+                        <tr>
+                            <td data-val="{{.Title}}">
+                                <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
+                            </td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{.User.Login}}">{{.User.Login}}</td>
+                            <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                {{else}}
+                <p class="empty-state">no open team prs</p>
+                {{end}}
+            </section>
+            {{else}}
+            <div class="section-divider"></div>
+            <section class="detail-section" id="team-prs">
+                <p class="section-label">team prs</p>
+                <p class="empty-state">
+                    <a href="/settings?section=github">Configure watched repos</a> to see team PRs here.
+                </p>
+            </section>
+            {{end}}
 
         </div>
     </main>
