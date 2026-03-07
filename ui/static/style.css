@@ -573,6 +573,10 @@ button.back-link {
   transition: opacity 0.15s;
 }
 
+.icon-avatar {
+  border-radius: 50%;
+}
+
 .subtle-link:hover .icon {
   opacity: 0.85;
 }
