@@ -266,7 +266,65 @@ func (c *Client) FetchTeamOpenPRs(ctx context.Context, watched []string) ([]*git
 	}
 	query := "is:pr is:open " + strings.Join(watched, " ")
 	cacheKey := "team-prs:" + strings.Join(watched, ",")
-	return c.searchIssues(ctx, cacheKey, query, opts)
+	return c.searchIssuesParallel(ctx, cacheKey, query, opts)
+}
+
+// searchIssuesParallel fetches all pages concurrently after an initial page-1 fetch
+// to discover LastPage. Safe for large result sets (up to GitHub's 1000-item cap).
+func (c *Client) searchIssuesParallel(ctx context.Context, cachePrefix, query string, opts *github.SearchOptions) ([]*github.Issue, error) {
+	key := createCacheKey(cachePrefix, query, opts)
+	if cached, err := c.cache.Get(key); err == nil {
+		fmt.Println("cache hit")
+		return cached, nil
+	}
+	fmt.Println("cache miss")
+
+	// Fetch page 1 to determine total page count.
+	firstResult, firstResp, err := c.client.Search.Issues(ctx, query, opts)
+	if err != nil {
+		return nil, err
+	}
+	lastPage := firstResp.LastPage
+	if lastPage == 0 {
+		// Single page — cache and return.
+		issues := firstResult.Issues
+		if err := c.cache.Set(key, issues); err != nil {
+			fmt.Println("error setting cache:", err)
+		}
+		return issues, nil
+	}
+
+	// Pre-allocate one slot per page; goroutines write to distinct indices (no mutex needed).
+	allPages := make([][]*github.Issue, lastPage)
+	allPages[0] = firstResult.Issues
+
+	g, gctx := errgroup.WithContext(ctx)
+	for pageNum := 2; pageNum <= lastPage; pageNum++ {
+		pageNum := pageNum
+		g.Go(func() error {
+			pageOpts := &github.SearchOptions{
+				ListOptions: github.ListOptions{PerPage: opts.PerPage, Page: pageNum},
+			}
+			result, _, err := c.client.Search.Issues(gctx, query, pageOpts)
+			if err != nil {
+				return err
+			}
+			allPages[pageNum-1] = result.Issues
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	var allIssues []*github.Issue
+	for _, page := range allPages {
+		allIssues = append(allIssues, page...)
+	}
+	if err := c.cache.Set(key, allIssues); err != nil {
+		fmt.Println("error setting cache:", err)
+	}
+	return allIssues, nil
 }
 
 // FetchAssignedIssues returns open issues currently assigned to the authenticated user.

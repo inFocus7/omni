@@ -647,3 +647,92 @@ button.back-link {
   align-items: center;
   margin-top: 1.5rem;
 }
+
+/* ── Table pagination ─────────────────────────────────────── */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pagination-info {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.pagination-ellipsis {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 0 0.1rem;
+  user-select: none;
+}
+
+/* prev / next arrow buttons */
+.pagination-btn {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  line-height: 1.5;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.085);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* individual page-number buttons */
+.pagination-page-btn {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  line-height: 1.5;
+  min-width: 1.75rem;
+  text-align: center;
+}
+
+.pagination-page-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.pagination-page-btn.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.14);
+  cursor: default;
+  font-weight: 400;
+}
+
