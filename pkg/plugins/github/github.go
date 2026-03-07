@@ -59,12 +59,7 @@ func (c *Client) FetchPullRequests(ctx context.Context, since time.Time) ([]*git
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr author:@me" + sinceQualifier(since)
-	allIssues, err := c.searchIssues(ctx, "prs", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "prs", query, opts)
 }
 
 func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.Issue, error) {
@@ -76,12 +71,7 @@ func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.I
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr reviewed-by:@me" + sinceQualifier(since)
-	allIssues, err := c.searchIssues(ctx, "reviews", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "reviews", query, opts)
 }
 
 func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github.Issue, error) {
@@ -93,12 +83,7 @@ func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr review:approved reviewed-by:@me" + sinceQualifier(since)
-	allIssues, err := c.searchIssues(ctx, "approvals", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "approvals", query, opts)
 }
 
 func (c *Client) FetchMergedPRs(ctx context.Context, since time.Time) ([]*github.Issue, error) {
@@ -110,12 +95,7 @@ func (c *Client) FetchMergedPRs(ctx context.Context, since time.Time) ([]*github
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr is:merged author:@me" + sinceQualifier(since)
-	allIssues, err := c.searchIssues(ctx, "merged", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "merged", query, opts)
 }
 
 func (c *Client) FetchOpenPRs(ctx context.Context) ([]*github.Issue, error) {
@@ -162,7 +142,7 @@ func (c *Client) FetchPRCodeStats(ctx context.Context, prs []*github.Issue, cach
 	}
 	fmt.Println("stats cache miss")
 
-	const maxConcurrent = 10
+	const maxConcurrent = 30
 	sem := make(chan struct{}, maxConcurrent)
 
 	var (
