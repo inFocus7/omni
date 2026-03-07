@@ -88,6 +88,35 @@
     document.querySelectorAll('table[data-sortable]').forEach(initSortable);
   }
 
+  // ── Tooltips for [data-tip] elements ────────────────────
+  const tip = document.createElement('div');
+  tip.className = 'tooltip';
+  document.body.appendChild(tip);
+  let tipTarget = null;
+
+  document.addEventListener('pointerenter', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (!el || !el.dataset.tip) return;
+    // For table cells, only show if content is truncated
+    if (el.tagName === 'TD') {
+      const measure = el.firstElementChild || el;
+      if (measure.scrollWidth <= measure.clientWidth && el.scrollWidth <= el.clientWidth) return;
+    }
+    tipTarget = el;
+    tip.textContent = el.dataset.tip;
+    const rect = el.getBoundingClientRect();
+    tip.style.left = rect.left + 'px';
+    tip.style.top = (rect.top - tip.offsetHeight - 6) + 'px';
+    tip.classList.add('tooltip--visible');
+  }, true);
+
+  document.addEventListener('pointerleave', (e) => {
+    if (e.target.closest('[data-tip]') === tipTarget) {
+      tip.classList.remove('tooltip--visible');
+      tipTarget = null;
+    }
+  }, true);
+
   initNav();
   initSortables();
 

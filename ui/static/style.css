@@ -35,7 +35,7 @@ input, button, select, textarea {
 
 body {
   font-family: var(--font-ui);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
@@ -493,9 +493,17 @@ a:hover { text-decoration: underline; }
 
 .detail-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-bottom: 0;
 }
+
+/* Column widths — percentages so they work across all table variants.
+   title gets whatever remains via auto. */
+.detail-table th[data-col="repo"]   { width: 22%; }
+.detail-table th[data-col="author"] { width: 18%; }
+.detail-table th[data-col="age"]    { width: 10%; }
+.detail-table th[data-col="status"] { width: 12%; }
 
 .detail-table th {
   font-size: 0.75rem;
@@ -522,17 +530,19 @@ a:hover { text-decoration: underline; }
 .detail-table th[aria-sort="descending"]::after { content: " \2193"; color: var(--accent); }
 
 .detail-table td {
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 400;
   color: var(--text);
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-table td:not(:first-child) {
   padding-left: 1rem;
-  white-space: nowrap;
   color: var(--text-2);
 }
 
@@ -614,23 +624,15 @@ a:hover { text-decoration: underline; }
 
 /* ── Tooltips ────────────────────────────────────────────── */
 
-.stat-label-tip {
-  position: relative;
-  cursor: default;
-}
-
-.tip {
-  position: absolute;
-  bottom: calc(100% + 0.4rem);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
+/* General-purpose tooltip — positioned by JS, appended to body */
+.tooltip {
+  position: fixed;
+  z-index: 1000;
   white-space: nowrap;
   font-family: var(--font-ui);
-  font-size: 0.625rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
   color: var(--text-2);
   background: var(--surface-2);
   border: 1px solid var(--border-2);
@@ -640,9 +642,12 @@ a:hover { text-decoration: underline; }
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
+  white-space: normal;
+  max-width: 360px;
+  word-break: break-word;
 }
 
-.stat-label-tip:hover .tip { opacity: 1; }
+.tooltip--visible { opacity: 1; }
 
 /* ── Settings page ───────────────────────────────────────── */
 
@@ -654,6 +659,11 @@ a:hover { text-decoration: underline; }
 
 .status-type-org  { color: var(--accent); background: var(--accent-soft); }
 .status-type-repo { color: var(--text-3); background: rgba(255, 255, 255, 0.04); }
+
+/* Settings watched table columns */
+.detail-table th[data-col="entry"]  { width: auto; }
+.detail-table th[data-col="type"]   { width: 60px; }
+.detail-table th[data-col="action"] { width: 36px; }
 
 .entry-action { text-align: right; }
 

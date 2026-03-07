@@ -44,10 +44,7 @@
                 <span class="detail-stat-sep">·</span>
                 <div class="detail-stat">
                     <span class="detail-stat-num">{{len .ReviewRequested}}</span>
-                    <span class="detail-stat-label stat-label-tip">
-                        review debt
-                        <span class="tip">open only · closed &amp; merged excluded</span>
-                    </span>
+                    <span class="detail-stat-label" data-tip="open only · closed &amp; merged excluded">review debt</span>
                 </div>
                 <span class="detail-stat-sep">·</span>
                 <div class="detail-stat">
@@ -83,10 +80,10 @@
                     <tbody>
                         {{range .OpenPRs}}
                         <tr>
-                            <td data-val="{{.Title}}">
+                            <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                             <td data-val="{{if isDraft .Draft}}draft{{else}}ready{{end}}">
                                 {{if isDraft .Draft}}
@@ -107,12 +104,7 @@
             <div class="section-divider"></div>
 
             <section class="detail-section" id="review-debt">
-                <p class="section-label">
-                    <span class="stat-label-tip">
-                        review debt
-                        <span class="tip">open only · closed &amp; merged excluded</span>
-                    </span>
-                </p>
+                <p class="section-label" data-tip="open only · closed &amp; merged excluded">review debt</p>
                 {{if .ReviewRequested}}
                 <table class="detail-table" data-sortable>
                     <thead>
@@ -126,11 +118,11 @@
                     <tbody>
                         {{range .ReviewRequested}}
                         <tr>
-                            <td data-val="{{.Title}}">
+                            <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -157,10 +149,10 @@
                     <tbody>
                         {{range .AssignedIssues}}
                         <tr>
-                            <td data-val="{{.Title}}">
+                            <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -189,11 +181,11 @@
                     <tbody>
                         {{range .TeamPRs}}
                         <tr>
-                            <td data-val="{{.Title}}">
+                            <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
