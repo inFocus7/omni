@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/infocus7/dashie/pkg/plugins"
 	"github.com/infocus7/dashie/pkg/settings"
@@ -13,26 +17,47 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func init() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+}
+
 func main() {
 	ctx := context.Background()
+	logger := log.With().Str("component", "app").Logger()
 
 	s, err := settings.Load()
 	if err != nil {
-		log.Printf("warning: could not load settings: %v", err)
+		logger.Warn().Err(err).Msg("could not load settings")
 		s = &settings.Settings{}
 	}
 
 	pm, err := plugins.NewPluginManager(ctx, s)
 	if err != nil {
+		logger.Error().Err(err).Msg("failed to initialize plugin manager")
 		panic(err)
 	}
 
 	pages, err := ui.Pages()
 	if err != nil {
+		logger.Error().Err(err).Msg("failed to load UI pages")
 		panic(err)
 	}
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(func(c *gin.Context) {
+		start := time.Now()
+		c.Next() // process
+		duration := time.Since(start)
+
+		logger := log.With().Str("component", "handler").Logger()
+		logger.Info().
+			Int("status", c.Writer.Status()).
+			Str("method", c.Request.Method).
+			Str("path", c.Request.URL.Path).
+			Dur("latency", duration).
+			Msg("handled request")
+	})
 	r.Static("/static", "./ui/static")
 
 	r.GET("/", func(c *gin.Context) {
@@ -40,11 +65,17 @@ func main() {
 
 		data, err := pm.FetchDashboardData(filter)
 		if err != nil {
+			logger.Error().Err(err).Fields(map[string]interface{}{
+				"filter": filter,
+			}).Msg("failed to fetch dashboard data")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		if err := pages.ExecuteTemplate(c.Writer, "dashboard.tmpl", data); err != nil {
+			logger.Error().Err(err).Fields(map[string]interface{}{
+				"filter": filter,
+			}).Msg("failed to render dashboard template")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -55,11 +86,17 @@ func main() {
 
 		data, err := pm.FetchGitHubDetail(filter)
 		if err != nil {
+			logger.Error().Err(err).Fields(map[string]interface{}{
+				"filter": filter,
+			}).Msg("failed to fetch GitHub detail data")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		if err := pages.ExecuteTemplate(c.Writer, "github_page.tmpl", data); err != nil {
+			logger.Error().Err(err).Fields(map[string]interface{}{
+				"filter": filter,
+			}).Msg("failed to render GitHub page template")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -74,6 +111,7 @@ func main() {
 		}
 
 		if err := pages.ExecuteTemplate(c.Writer, "settings_page.tmpl", data); err != nil {
+			logger.Error().Err(err).Msg("failed to render settings page template")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -97,6 +135,7 @@ func main() {
 
 		s.GitHub.Watched = append(s.GitHub.Watched, entry)
 		if err := s.Save(); err != nil {
+			logger.Error().Err(err).Msg("failed to save settings")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -107,6 +146,7 @@ func main() {
 	r.DELETE("/settings/github/watch/:entry", func(c *gin.Context) {
 		entry, err := url.PathUnescape(c.Param("entry"))
 		if err != nil {
+			logger.Error().Err(err).Msg("failed to unescape entry parameter")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid entry"})
 			return
 		}
@@ -120,6 +160,7 @@ func main() {
 		s.GitHub.Watched = watched
 
 		if err := s.Save(); err != nil {
+			logger.Error().Err(err).Msg("failed to save settings")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -129,6 +170,7 @@ func main() {
 
 	// start of default port (8080), will support opts later
 	if err := r.Run(); err != nil {
-		log.Fatal(err)
+		logger.Error().Err(err).Msg("failed to run server")
+		os.Exit(1)
 	}
 }

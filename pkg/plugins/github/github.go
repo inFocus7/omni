@@ -127,10 +127,8 @@ func (c *Client) FetchReviewRequested(ctx context.Context) ([]*github.Issue, err
 // Results are cached under cacheKey.
 func (c *Client) FetchPRCodeStats(ctx context.Context, prs []*github.Issue, cacheKey string) (PRCodeStats, error) {
 	if cached, err := c.statsCache.Get(cacheKey); err == nil {
-		fmt.Println("stats cache hit")
 		return cached, nil
 	}
-	fmt.Println("stats cache miss")
 
 	const maxConcurrent = 30
 	sem := make(chan struct{}, maxConcurrent)
