@@ -34,14 +34,12 @@ type SimpleCache[T any] struct {
 var _ Cache = (*SimpleCache[any])(nil)
 
 func NewSimpleCache[T any](ttl time.Duration) *SimpleCache[T] {
-	logger := log.With().Fields(map[string]interface{}{
-		"component": "cache",
-	}).Logger()
-
 	return &SimpleCache[T]{
-		data:   make(map[string]Entry[T]),
-		ttl:    ttl,
-		logger: &logger,
+		data: make(map[string]Entry[T]),
+		ttl:  ttl,
+		logger: new(log.With().Fields(map[string]interface{}{
+			"component": "cache",
+		}).Logger()),
 	}
 }
 
