@@ -13,8 +13,85 @@
     }, { passive: true });
   }
 
-  document.querySelectorAll('table[data-sortable]').forEach(initSortable);
+  // ── Client-side navigation for filter links ────────────
+  function initNav() {
+    const main = document.querySelector('main.plugins');
+    if (!main) return;
 
+    main.addEventListener('click', (e) => {
+      const link = e.target.closest('.filters a');
+      if (!link) return;
+      e.preventDefault();
+
+      const url = link.href;
+      navigateTo(url);
+    });
+  }
+
+  let navController = null;
+
+  function navigateTo(url) {
+    const main = document.querySelector('main.plugins');
+    if (!main) return;
+
+    // Abort any in-flight navigation
+    if (navController) navController.abort();
+    navController = new AbortController();
+
+    // Immediately update active filter
+    const filters = main.querySelector('.filters');
+    if (filters) {
+      filters.querySelectorAll('a').forEach(a => {
+        a.classList.toggle('active', a.href === url);
+      });
+    }
+
+    main.classList.add('plugins--loading');
+
+    fetch(url, { signal: navController.signal })
+      .then(res => {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.text();
+      })
+      .then(html => {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const newMain = doc.querySelector('main.plugins');
+        if (!newMain) throw new Error('no main found');
+
+        // Swap content and re-init components
+        main.innerHTML = newMain.innerHTML;
+        main.classList.remove('plugins--loading');
+        main.querySelectorAll('.plugin').forEach(el => el.style.animation = 'none');
+        initSortables();
+
+        // Update URL without reload
+        history.pushState(null, '', url);
+
+        // Update page title if changed
+        const newTitle = doc.querySelector('title');
+        if (newTitle) document.title = newTitle.textContent;
+      })
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+        // On failure, fall back to normal navigation
+        main.classList.remove('plugins--loading');
+        window.location.href = url;
+      });
+  }
+
+  // Handle back/forward
+  window.addEventListener('popstate', () => {
+    navigateTo(window.location.href);
+  });
+
+  function initSortables() {
+    document.querySelectorAll('table[data-sortable]').forEach(initSortable);
+  }
+
+  initNav();
+  initSortables();
+
+  // ── Sortable tables with pagination ────────────────────
   function initSortable(table) {
     const PAGE_SIZE = 10;
     const tbody = table.tBodies[0];
