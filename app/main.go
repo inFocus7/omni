@@ -27,6 +27,11 @@ func main() {
 		panic(err)
 	}
 
+	pages, err := ui.Pages()
+	if err != nil {
+		panic(err)
+	}
+
 	r := gin.Default()
 	r.Static("/static", "./ui/static")
 
@@ -34,12 +39,6 @@ func main() {
 		filter := c.DefaultQuery("filter", "7d")
 
 		data, err := pm.FetchDashboardData(filter)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		pages, err := ui.Pages()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -60,12 +59,6 @@ func main() {
 			return
 		}
 
-		pages, err := ui.Pages()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
 		if err := pages.ExecuteTemplate(c.Writer, "github_page.tmpl", data); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -74,12 +67,6 @@ func main() {
 
 	r.GET("/settings", func(c *gin.Context) {
 		section := c.DefaultQuery("section", "general")
-
-		pages, err := ui.Pages()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
 
 		data := gin.H{
 			"Section":  section,

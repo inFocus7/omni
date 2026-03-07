@@ -107,12 +107,7 @@ func (c *Client) FetchOpenPRs(ctx context.Context) ([]*github.Issue, error) {
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr is:open author:@me"
-	allIssues, err := c.searchIssues(ctx, "open", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "open", query, opts)
 }
 
 // FetchReviewRequested returns PRs where review is currently requested from the authenticated user.
@@ -125,12 +120,7 @@ func (c *Client) FetchReviewRequested(ctx context.Context) ([]*github.Issue, err
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:pr is:open review-requested:@me"
-	allIssues, err := c.searchIssues(ctx, "review-requested", query, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "review-requested", query, opts)
 }
 
 // FetchPRCodeStats fetches additions/deletions for each PR via individual API calls.
@@ -167,8 +157,8 @@ func (c *Client) FetchPRCodeStats(ctx context.Context, prs []*github.Issue, cach
 		repo := parts[len(parts)-1]
 		number := *pr.Number
 
-		sem <- struct{}{}
 		g.Go(func() error {
+			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			result, _, err := c.client.PullRequests.Get(gctx, owner, repo, number)
@@ -317,40 +307,7 @@ func (c *Client) FetchAssignedIssues(ctx context.Context) ([]*github.Issue, erro
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	query := "is:issue is:open assignee:@me"
-
-	allIssues, err := c.searchIssues(ctx, "assigned", query, opts)
-	if err != nil {
-		return nil, err
-	}
-	return allIssues, nil
-}
-
-func (c *Client) searchIssues(ctx context.Context, cachePrefix, query string, opts *github.SearchOptions) ([]*github.Issue, error) {
-	var allIssues []*github.Issue
-	key := createCacheKey(cachePrefix, query, opts)
-
-	if cached, err := c.cache.Get(key); err == nil {
-		fmt.Println("cache hit")
-		return cached, nil
-	}
-	fmt.Println("cache miss")
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			return nil, err
-		}
-		allIssues = append(allIssues, result.Issues...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-
-	if err := c.cache.Set(key, allIssues); err != nil {
-		fmt.Println("error setting cache:", err) // no need to panic
-	}
-	return allIssues, nil
+	return c.searchIssuesParallel(ctx, "assigned", query, opts)
 }
 
 func createCacheKey(prefix string, query string, opts *github.SearchOptions) string {

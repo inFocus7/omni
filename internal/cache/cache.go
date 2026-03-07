@@ -43,18 +43,21 @@ func (c *SimpleCache[T]) Get(key string) (T, error) {
 	}
 
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	value, ok := c.data[key]
+	c.mu.RUnlock()
 
-	if value, ok := c.data[key]; ok {
-		// check that the entry is not expired
-		if time.Since(value.Created) > c.ttl {
-			return zero, ExpiredEntryError
-		}
-
-		return value.Value, nil
+	if !ok {
+		return zero, CacheMissError
 	}
 
-	return zero, CacheMissError
+	if time.Since(value.Created) > c.ttl {
+		c.mu.Lock()
+		delete(c.data, key)
+		c.mu.Unlock()
+		return zero, ExpiredEntryError
+	}
+
+	return value.Value, nil
 }
 
 func (c *SimpleCache[T]) Set(key string, value T) error {
