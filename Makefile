@@ -3,7 +3,7 @@
 run:
 	go run ./app/main.go
 
-run-live:
+run-live: check-deps
 	air
 
 docker-build:

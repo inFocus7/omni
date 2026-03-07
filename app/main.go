@@ -82,6 +82,14 @@ func main() {
 		}
 	})
 
+	r.GET("/plugins", func(c *gin.Context) {
+		if err := pages.ExecuteTemplate(c.Writer, "plugins_page.tmpl", nil); err != nil {
+			logger.Error().Err(err).Msg("failed to render plugins page template")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	})
+
 	r.GET("/github", func(c *gin.Context) {
 		filter := c.DefaultQuery("filter", "7d")
 
@@ -122,14 +130,14 @@ func main() {
 		raw := c.PostForm("entry")
 		entry := settings.NormalizeEntry(raw)
 		if entry == "" {
-			c.Redirect(http.StatusSeeOther, "/settings?section=github")
+			c.Redirect(http.StatusSeeOther, "/settings?section=plugins")
 			return
 		}
 
 		// Deduplicate
 		for _, w := range s.GitHub.Watched {
 			if w == entry {
-				c.Redirect(http.StatusSeeOther, "/settings?section=github")
+				c.Redirect(http.StatusSeeOther, "/settings?section=plugins")
 				return
 			}
 		}
@@ -141,7 +149,7 @@ func main() {
 			return
 		}
 
-		c.Redirect(http.StatusSeeOther, "/settings?section=github")
+		c.Redirect(http.StatusSeeOther, "/settings?section=plugins")
 	})
 
 	r.DELETE("/settings/github/watch/:entry", func(c *gin.Context) {

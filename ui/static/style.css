@@ -67,6 +67,12 @@ body {
 .site-header > :nth-child(2) { justify-self: center; }
 .site-header > :nth-child(3) { justify-self: end; }
 
+.breadcrumb-sep {
+  color: var(--text-dim, #666);
+  font-weight: 400;
+  margin: 0 0.1rem;
+}
+
 .site-header h1,
 .site-header .plugin-label {
   font-family: var(--font-ui);
@@ -204,6 +210,70 @@ button.back-link { cursor: pointer; }
   height: 12px;
   flex-shrink: 0;
 }
+
+/* ── Plugin list (plugins page) ─────────────────────────── */
+
+.plugin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plugin-card {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.plugin-card:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  text-decoration: none;
+}
+
+.plugin-card-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+
+.plugin-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.plugin-card-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.plugin-card-desc {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.plugin-card-arrow {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-3);
+  transition: color 0.15s;
+}
+
+.plugin-card:hover .plugin-card-arrow { color: var(--text-2); }
 
 /* ── Section labels ──────────────────────────────────────── */
 
