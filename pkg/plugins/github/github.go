@@ -186,7 +186,7 @@ func (c *Client) FetchPRCodeStats(ctx context.Context, prs []*github.Issue, cach
 	}
 
 	if err := c.statsCache.Set(cacheKey, stats); err != nil {
-		fmt.Println("error setting stats cache:", err)
+		return PRCodeStats{}, err
 	}
 
 	return stats, nil
@@ -201,10 +201,8 @@ func (c *Client) FetchCount(ctx context.Context, query string) (int, error) {
 
 	key := "count:" + query
 	if cached, err := c.countCache.Get(key); err == nil {
-		fmt.Println("count cache hit")
 		return cached, nil
 	}
-	fmt.Println("count cache miss")
 
 	opts := &github.SearchOptions{ListOptions: github.ListOptions{PerPage: 1}}
 	result, _, err := c.client.Search.Issues(ctx, query, opts)
@@ -214,7 +212,7 @@ func (c *Client) FetchCount(ctx context.Context, query string) (int, error) {
 
 	count := result.GetTotal()
 	if err := c.countCache.Set(key, count); err != nil {
-		fmt.Println("error setting count cache:", err)
+		return 0, err
 	}
 	return count, nil
 }
@@ -242,10 +240,8 @@ func (c *Client) FetchTeamOpenPRs(ctx context.Context, watched []string) ([]*git
 func (c *Client) searchIssuesParallel(ctx context.Context, cachePrefix, query string, opts *github.SearchOptions) ([]*github.Issue, error) {
 	key := createCacheKey(cachePrefix, query, opts)
 	if cached, err := c.cache.Get(key); err == nil {
-		fmt.Println("cache hit")
 		return cached, nil
 	}
-	fmt.Println("cache miss")
 
 	// Fetch page 1 to determine total page count.
 	firstResult, firstResp, err := c.client.Search.Issues(ctx, query, opts)
@@ -257,7 +253,7 @@ func (c *Client) searchIssuesParallel(ctx context.Context, cachePrefix, query st
 		// Single page — cache and return.
 		issues := firstResult.Issues
 		if err := c.cache.Set(key, issues); err != nil {
-			fmt.Println("error setting cache:", err)
+			return nil, err
 		}
 		return issues, nil
 	}
@@ -290,7 +286,7 @@ func (c *Client) searchIssuesParallel(ctx context.Context, cachePrefix, query st
 		allIssues = append(allIssues, page...)
 	}
 	if err := c.cache.Set(key, allIssues); err != nil {
-		fmt.Println("error setting cache:", err)
+		return nil, err
 	}
 	return allIssues, nil
 }
