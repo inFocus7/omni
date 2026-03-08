@@ -107,6 +107,13 @@ func main() {
 	})
 	r.Static("/static", "./ui/static")
 
+	r.NoRoute(func(c *gin.Context) {
+		c.Status(http.StatusNotFound)
+		if err := pages.ExecuteTemplate(c.Writer, "404.tmpl", nil); err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to render 404 template")
+		}
+	})
+
 	// ── Dashboard ──────────────────────────────────────────
 	r.GET("/", func(c *gin.Context) {
 		filter := c.DefaultQuery("filter", "7d")
