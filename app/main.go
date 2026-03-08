@@ -240,19 +240,19 @@ func main() {
 			Sizes       []sizeJSON `json:"sizes"`
 		}
 
-		out := make([]widgetJSON, len(defs))
-		for i, d := range defs {
+		out := make([]widgetJSON, 0, len(defs))
+		for _, d := range defs {
 			sizes := make([]sizeJSON, len(d.Sizes))
 			for j, sz := range d.Sizes {
 				sizes[j] = sizeJSON{Name: sz.Name, W: sz.W, H: sz.H}
 			}
-			out[i] = widgetJSON{
+			out = append(out, widgetJSON{
 				ID:          d.ID,
 				PluginID:    d.PluginID,
 				Name:        d.Name,
 				Description: d.Description,
 				Sizes:       sizes,
-			}
+			})
 		}
 		c.JSON(http.StatusOK, out)
 	})
@@ -425,6 +425,7 @@ func main() {
 			if _, ok := pm.Registry.Get(w.ID); !ok {
 				continue
 			}
+			// Allow multiple instances of the same widget type (e.g. spacer:0, spacer:1)
 			if seen[w.ID] {
 				continue
 			}

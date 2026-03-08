@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-github/v83/github"
 	ghplugin "github.com/infocus7/dash/pkg/plugins/github"
+	"github.com/infocus7/dash/pkg/plugins/spacer"
 	"github.com/infocus7/dash/pkg/settings"
 	"github.com/infocus7/dash/pkg/widgets"
 	"golang.org/x/sync/errgroup"
@@ -81,6 +82,7 @@ func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager
 	reg.Register(ghplugin.NewAuthoredWidget(ghClient))
 	reg.Register(ghplugin.NewReviewedWidget(ghClient))
 	reg.Register(ghplugin.NewRightNowWidget(ghClient))
+	reg.Register(spacer.New())
 
 	return &PluginManager{
 		ctx:          ctx,

@@ -3,6 +3,7 @@ package widgets
 import (
 	"context"
 	"html/template"
+	"strings"
 	"sync"
 )
 
@@ -47,11 +48,19 @@ func (r *Registry) Register(w Widget) {
 }
 
 // Get returns a widget by ID.
+// Supports instance IDs (e.g. "spacer:0") by stripping the suffix after ":".
 func (r *Registry) Get(id string) (Widget, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	w, ok := r.widgets[id]
-	return w, ok
+	if w, ok := r.widgets[id]; ok {
+		return w, true
+	}
+	// Try base ID for instance IDs like "spacer:0"
+	if base, _, ok := strings.Cut(id, ":"); ok {
+		w, found := r.widgets[base]
+		return w, found
+	}
+	return nil, false
 }
 
 // All returns definitions of all registered widgets.

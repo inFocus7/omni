@@ -39,7 +39,7 @@
         {{if .Widgets}}
         <div class="widget-grid" id="widget-grid">
             {{range .Widgets}}
-            <div class="widget" data-widget-id="{{.ID}}" data-size="{{.SizeName}}"
+            <div class="widget{{if eq .PluginID "spacer"}} widget-spacer{{end}}" data-widget-id="{{.ID}}" data-size="{{.SizeName}}"
                  style="grid-column: span {{.W}}; grid-row: span {{.H}}">
                 <div class="widget-controls">
                     <span class="widget-drag-handle" title="Drag to reorder" aria-hidden="true">⋮⋮</span>

@@ -1132,6 +1132,20 @@ a:hover { text-decoration: underline; }
   height: 100%;
 }
 
+/* ── Spacer widget ─────────────────────────────────────── */
+
+.widget-spacer {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.widget-grid--editing .widget-spacer {
+  background: var(--surface);
+  border: 2px dashed var(--border-2);
+  opacity: 0.5;
+}
+
 /* ── Edit mode ──────────────────────────────────────────── */
 
 .widget-grid--editing {

@@ -65,6 +65,10 @@
       name: 'GitHub',
       icon: '<svg class="plugin-card-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>',
       badgeIcon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>'
+    },
+    spacer: {
+      name: 'Layout',
+      icon: '<svg class="plugin-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>'
     }
   };
 
@@ -356,7 +360,9 @@
       const id = widgetEl.dataset.widgetId;
       const sizeName = sizeBtn.dataset.sizeName;
 
-      const def = widgetDefs && widgetDefs.find(w => w.id === id);
+      // Resolve instance IDs (e.g. "spacer:123") to base ID
+      const baseId = id.includes(':') ? id.split(':')[0] : id;
+      const def = widgetDefs && widgetDefs.find(w => w.id === baseId || w.id === id);
       const sizeOpt = def && def.sizes.find(s => s.name === sizeName);
       if (!sizeOpt) return;
 
@@ -368,19 +374,22 @@
         b.classList.toggle('active', b.dataset.sizeName === sizeName)
       );
 
-      const filter = getActiveFilter();
-      fetch(`/api/widgets/${encodeURIComponent(id)}/preview?size=${encodeURIComponent(sizeName)}&filter=${encodeURIComponent(filter)}`)
-        .then(r => r.json())
-        .then(data => {
-          const fill = widgetEl.querySelector('.widget-fill');
-          if (fill) {
-            const temp = document.createElement('div');
-            temp.innerHTML = data.html;
-            const newFill = temp.querySelector('.widget-fill');
-            if (newFill) fill.replaceWith(newFill);
-          }
-        })
-        .catch(err => console.error('Failed to fetch widget preview:', err));
+      // Spacers render nothing — skip the preview fetch
+      if (!widgetEl.classList.contains('widget-spacer')) {
+        const filter = getActiveFilter();
+        fetch(`/api/widgets/${encodeURIComponent(baseId)}/preview?size=${encodeURIComponent(sizeName)}&filter=${encodeURIComponent(filter)}`)
+          .then(r => r.json())
+          .then(data => {
+            const fill = widgetEl.querySelector('.widget-fill');
+            if (fill) {
+              const temp = document.createElement('div');
+              temp.innerHTML = data.html;
+              const newFill = temp.querySelector('.widget-fill');
+              if (newFill) fill.replaceWith(newFill);
+            }
+          })
+          .catch(err => console.error('Failed to fetch widget preview:', err));
+      }
 
       dirty = true;
     });
@@ -400,7 +409,9 @@
 
           grid.querySelectorAll('.widget-size-picker[data-widget-id]').forEach(picker => {
             const id = picker.dataset.widgetId;
-            const def = widgetMap[id];
+            // Resolve instance IDs (e.g. "spacer:123") to base ID
+            const baseId = id.includes(':') ? id.split(':')[0] : id;
+            const def = widgetMap[baseId] || widgetMap[id];
             if (!def) return;
             const currentSize = picker.closest('.widget').dataset.size;
             picker.innerHTML = def.sizes.map(s =>
@@ -610,56 +621,66 @@
       const sizeOpt = selectedWidget.sizes.find(s => s.name === selectedSize);
       if (!sizeOpt) return;
 
+      const isSpacer = selectedWidget.plugin_id === 'spacer';
+      // Spacers get unique instance IDs so multiple can coexist
+      const widgetId = isSpacer ? selectedWidget.id + ':' + Date.now() : selectedWidget.id;
+
       const grid = document.getElementById('widget-grid');
       if (!grid) {
         fetch('/api/dashboard/widgets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: selectedWidget.id, size_name: selectedSize })
+          body: JSON.stringify({ id: widgetId, size_name: selectedSize })
         })
           .then(() => window.location.reload())
           .catch(err => console.error('Failed to pin widget:', err));
         return;
       }
 
-      fetch(`/api/widgets/${encodeURIComponent(selectedWidget.id)}/preview?size=${encodeURIComponent(selectedSize)}&filter=${encodeURIComponent(filter)}`)
-        .then(r => r.json())
-        .then(data => {
-          const grid = document.getElementById('widget-grid');
-          const addCard = document.getElementById('widget-add-card');
-          if (!grid) return;
+      const addWidget = (html) => {
+        const grid = document.getElementById('widget-grid');
+        const addCard = document.getElementById('widget-add-card');
+        if (!grid) return;
 
-          const pid = selectedWidget.plugin_id;
-          const meta = PLUGIN_META[pid];
+        const pid = selectedWidget.plugin_id;
+        const meta = PLUGIN_META[pid];
 
-          const div = document.createElement('div');
-          div.className = 'widget';
-          div.dataset.widgetId = selectedWidget.id;
-          div.dataset.size = selectedSize;
-          div.style.gridColumn = `span ${sizeOpt.w}`;
-          div.style.gridRow = `span ${sizeOpt.h}`;
-          div.innerHTML = `
-            <div class="widget-controls">
-              <span class="widget-drag-handle" title="Drag to reorder" aria-hidden="true">⋮⋮</span>
-              <button class="widget-remove" data-widget-id="${selectedWidget.id}" title="Remove widget">&times;</button>
-            </div>
-            <div class="widget-size-picker" data-widget-id="${selectedWidget.id}"></div>
-            ${meta?.badgeIcon ? `<div class="widget-badge" title="${meta.name || pid}">${meta.badgeIcon}</div>` : ''}
-            ${data.html}`;
+        const div = document.createElement('div');
+        div.className = 'widget' + (isSpacer ? ' widget-spacer' : '');
+        div.dataset.widgetId = widgetId;
+        div.dataset.size = selectedSize;
+        div.style.gridColumn = `span ${sizeOpt.w}`;
+        div.style.gridRow = `span ${sizeOpt.h}`;
+        div.innerHTML = `
+          <div class="widget-controls">
+            <span class="widget-drag-handle" title="Drag to reorder" aria-hidden="true">⋮⋮</span>
+            <button class="widget-remove" data-widget-id="${widgetId}" title="Remove widget">&times;</button>
+          </div>
+          <div class="widget-size-picker" data-widget-id="${widgetId}"></div>
+          ${!isSpacer && meta?.badgeIcon ? `<div class="widget-badge" title="${meta.name || pid}">${meta.badgeIcon}</div>` : ''}
+          ${html}`;
 
-          if (addCard) grid.insertBefore(div, addCard);
-          else grid.appendChild(div);
+        if (addCard) grid.insertBefore(div, addCard);
+        else grid.appendChild(div);
 
-          const picker = div.querySelector('.widget-size-picker');
-          if (picker) {
-            picker.innerHTML = selectedWidget.sizes.map(s =>
-              `<button class="widget-size-btn${s.name === selectedSize ? ' active' : ''}" data-size-name="${s.name}">${s.name}</button>`
-            ).join('');
-          }
+        const picker = div.querySelector('.widget-size-picker');
+        if (picker) {
+          picker.innerHTML = selectedWidget.sizes.map(s =>
+            `<button class="widget-size-btn${s.name === selectedSize ? ' active' : ''}" data-size-name="${s.name}">${s.name}</button>`
+          ).join('');
+        }
 
-          closeWidgetPicker();
-        })
-        .catch(err => console.error('Failed to fetch widget preview:', err));
+        closeWidgetPicker();
+      };
+
+      if (isSpacer) {
+        addWidget('');
+      } else {
+        fetch(`/api/widgets/${encodeURIComponent(selectedWidget.id)}/preview?size=${encodeURIComponent(selectedSize)}&filter=${encodeURIComponent(filter)}`)
+          .then(r => r.json())
+          .then(data => addWidget(data.html))
+          .catch(err => console.error('Failed to fetch widget preview:', err));
+      }
     });
   }
 
