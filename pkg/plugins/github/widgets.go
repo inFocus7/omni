@@ -37,8 +37,8 @@ func (w *RatioWidget) Definition() widgets.WidgetDef {
 		Name:        "Ratio",
 		Description: "Author-to-reviewer ratio",
 		Sizes: []widgets.SizeOption{
-			{Name: "small", W: 1, H: 1},
-			{Name: "wide", W: 2, H: 2},
+			{Name: "wide", W: 2, H: 1},
+			{Name: "large", W: 2, H: 2},
 			{Name: "full", W: 3, H: 2},
 		},
 	}
@@ -274,7 +274,7 @@ func (w *RightNowWidget) Definition() widgets.WidgetDef {
 		Description: "Open PRs, review debt, and assigned issues",
 		Sizes: []widgets.SizeOption{
 			{Name: "tall", W: 1, H: 2},
-			{Name: "wide", W: 2, H: 1},
+			{Name: "wide", W: 3, H: 2},
 		},
 	}
 }
