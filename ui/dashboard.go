@@ -121,17 +121,5 @@ func Pages() (*template.Template, error) {
 		}
 	}
 
-	widgetMatches, err := filepath.Glob(filepath.Join(templatesDir, "widgets", "*.tmpl"))
-	if err != nil {
-		return nil, err
-	}
-
-	if len(widgetMatches) > 0 {
-		t, err = t.ParseFiles(widgetMatches...)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return t, nil
 }

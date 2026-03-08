@@ -1,7 +1,6 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"html/template"
@@ -139,7 +138,7 @@ func formatInt(n int) string {
 }
 
 // FetchDashboardWidgets fetches and pre-renders pinned widgets from settings.
-func (pm *PluginManager) FetchDashboardWidgets(filter string, tmpl *template.Template) ([]RenderedWidget, error) {
+func (pm *PluginManager) FetchDashboardWidgets(filter string) ([]RenderedWidget, error) {
 	pinned := pm.settings.Dashboard.Widgets
 	if len(pinned) == 0 {
 		return nil, nil
@@ -176,27 +175,9 @@ func (pm *PluginManager) FetchDashboardWidgets(filter string, tmpl *template.Tem
 				sizeName = sizeOpt.Name
 			}
 
-			wd, err := w.Fetch(ctx, filter, sizeName)
+			html, err := w.Render(ctx, filter, sizeName)
 			if err != nil {
 				// Render error widget instead of failing the whole dashboard
-				errorHTML := renderWidgetError(dw.ID, err)
-				results[i] = result{
-					index: i,
-					rw: RenderedWidget{
-						ID:       dw.ID,
-						PluginID: def.PluginID,
-						SizeName: sizeName,
-						W:        sizeOpt.W,
-						H:        sizeOpt.H,
-						HTML:     template.HTML(errorHTML),
-					},
-				}
-				return nil
-			}
-
-			var buf bytes.Buffer
-			if err := tmpl.ExecuteTemplate(&buf, wd.TemplateName, wd.Data); err != nil {
-				// Render error widget instead of failing
 				errorHTML := renderWidgetError(dw.ID, err)
 				results[i] = result{
 					index: i,
@@ -220,7 +201,7 @@ func (pm *PluginManager) FetchDashboardWidgets(filter string, tmpl *template.Tem
 					SizeName: sizeName,
 					W:        sizeOpt.W,
 					H:        sizeOpt.H,
-					HTML:     template.HTML(buf.String()),
+					HTML:     html,
 				},
 			}
 			return nil
@@ -260,7 +241,7 @@ func renderWidgetError(widgetID string, err error) string {
 }
 
 // RenderWidgetPreview renders a single widget at a given size for the preview API.
-func (pm *PluginManager) RenderWidgetPreview(widgetID, sizeName, filter string, tmpl *template.Template) (template.HTML, int, int, error) {
+func (pm *PluginManager) RenderWidgetPreview(widgetID, sizeName, filter string) (template.HTML, int, int, error) {
 	w, ok := pm.Registry.Get(widgetID)
 	if !ok {
 		return "", 0, 0, fmt.Errorf("unknown widget: %s", widgetID)
@@ -272,17 +253,12 @@ func (pm *PluginManager) RenderWidgetPreview(widgetID, sizeName, filter string, 
 		return "", 0, 0, fmt.Errorf("unknown size %q for widget %s", sizeName, widgetID)
 	}
 
-	wd, err := w.Fetch(pm.ctx, filter, sizeName)
+	html, err := w.Render(pm.ctx, filter, sizeName)
 	if err != nil {
 		return "", 0, 0, err
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, wd.TemplateName, wd.Data); err != nil {
-		return "", 0, 0, err
-	}
-
-	return template.HTML(buf.String()), sizeOpt.W, sizeOpt.H, nil
+	return html, sizeOpt.W, sizeOpt.H, nil
 }
 
 // FetchGitHubDetail fetches full list data for the /github plugin page.

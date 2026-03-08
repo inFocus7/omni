@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"context"
+	"html/template"
 	"sync"
 )
 
@@ -21,16 +22,10 @@ type WidgetDef struct {
 	Sizes       []SizeOption
 }
 
-// WidgetData is returned by Fetch with the template name and data to render.
-type WidgetData struct {
-	TemplateName string
-	Data         interface{}
-}
-
 // Widget is implemented by each dashboard component a plugin provides.
 type Widget interface {
 	Definition() WidgetDef
-	Fetch(ctx context.Context, filter string, sizeName string) (*WidgetData, error)
+	Render(ctx context.Context, filter string, sizeName string) (template.HTML, error)
 }
 
 // Registry holds all registered widgets.

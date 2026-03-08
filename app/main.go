@@ -113,7 +113,7 @@ func main() {
 
 		// Use widget-based dashboard if user has pinned widgets
 		if len(s.Dashboard.Widgets) > 0 {
-			rendered, err := pm.FetchDashboardWidgets(filter, pages)
+			rendered, err := pm.FetchDashboardWidgets(filter)
 			if err != nil {
 				respondError(c, logger, http.StatusInternalServerError, err, "failed to fetch dashboard widgets")
 				return
@@ -268,7 +268,7 @@ func main() {
 			return
 		}
 
-		html, w, h, err := pm.RenderWidgetPreview(id, sizeName, filter, pages)
+		html, w, h, err := pm.RenderWidgetPreview(id, sizeName, filter)
 		if err != nil {
 			logger.Error().Err(err).Str("widget", id).Str("size", sizeName).Msg("failed to render widget preview")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

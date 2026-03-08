@@ -1,12 +1,30 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"embed"
+	"fmt"
+	"html/template"
 
 	"github.com/infocus7/dash/pkg/utils"
 	"github.com/infocus7/dash/pkg/widgets"
 	"golang.org/x/sync/errgroup"
 )
+
+//go:embed templates/*.tmpl
+var templateFS embed.FS
+
+var tmpl = template.Must(template.ParseFS(templateFS, "templates/*.tmpl"))
+
+// renderTemplate executes a named template and returns the HTML.
+func renderTemplate(name string, data interface{}) (template.HTML, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		return "", fmt.Errorf("render %s: %w", name, err)
+	}
+	return template.HTML(buf.String()), nil
+}
 
 // ---------------------------------------------------------------------------
 // RatioWidget — author-to-reviewer ratio
@@ -44,9 +62,9 @@ func (w *RatioWidget) Definition() widgets.WidgetDef {
 	}
 }
 
-func (w *RatioWidget) Fetch(ctx context.Context, filter string, sizeName string) (*widgets.WidgetData, error) {
+func (w *RatioWidget) Render(ctx context.Context, filter string, sizeName string) (template.HTML, error) {
 	if ctx == nil {
-		return nil, utils.NilContextError
+		return "", utils.NilContextError
 	}
 
 	since := sinceFromFilter(filter)
@@ -73,7 +91,7 @@ func (w *RatioWidget) Fetch(ctx context.Context, filter string, sizeName string)
 	})
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	data := &RatioData{
@@ -84,10 +102,7 @@ func (w *RatioWidget) Fetch(ctx context.Context, filter string, sizeName string)
 		ReviewedPct:  CalcPercent(reviewed, authored),
 	}
 
-	return &widgets.WidgetData{
-		TemplateName: "widget_github_ratio_" + sizeName,
-		Data:         data,
-	}, nil
+	return renderTemplate("ratio_"+sizeName+".tmpl", data)
 }
 
 // ---------------------------------------------------------------------------
@@ -124,9 +139,9 @@ func (w *AuthoredWidget) Definition() widgets.WidgetDef {
 	}
 }
 
-func (w *AuthoredWidget) Fetch(ctx context.Context, filter string, sizeName string) (*widgets.WidgetData, error) {
+func (w *AuthoredWidget) Render(ctx context.Context, filter string, sizeName string) (template.HTML, error) {
 	if ctx == nil {
-		return nil, utils.NilContextError
+		return "", utils.NilContextError
 	}
 
 	since := sinceFromFilter(filter)
@@ -152,7 +167,7 @@ func (w *AuthoredWidget) Fetch(ctx context.Context, filter string, sizeName stri
 	}
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	data := &AuthoredData{
@@ -162,10 +177,7 @@ func (w *AuthoredWidget) Fetch(ctx context.Context, filter string, sizeName stri
 		MergeRate:     FormatMergeRate(merged, authored),
 	}
 
-	return &widgets.WidgetData{
-		TemplateName: "widget_github_authored_" + sizeName,
-		Data:         data,
-	}, nil
+	return renderTemplate("authored_"+sizeName+".tmpl", data)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,9 +214,9 @@ func (w *ReviewedWidget) Definition() widgets.WidgetDef {
 	}
 }
 
-func (w *ReviewedWidget) Fetch(ctx context.Context, filter string, sizeName string) (*widgets.WidgetData, error) {
+func (w *ReviewedWidget) Render(ctx context.Context, filter string, sizeName string) (template.HTML, error) {
 	if ctx == nil {
-		return nil, utils.NilContextError
+		return "", utils.NilContextError
 	}
 
 	since := sinceFromFilter(filter)
@@ -230,7 +242,7 @@ func (w *ReviewedWidget) Fetch(ctx context.Context, filter string, sizeName stri
 	}
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	data := &ReviewedData{
@@ -240,10 +252,7 @@ func (w *ReviewedWidget) Fetch(ctx context.Context, filter string, sizeName stri
 		ApprovalRate:  FormatApprovalRate(approved, reviewed),
 	}
 
-	return &widgets.WidgetData{
-		TemplateName: "widget_github_reviewed_" + sizeName,
-		Data:         data,
-	}, nil
+	return renderTemplate("reviewed_"+sizeName+".tmpl", data)
 }
 
 // ---------------------------------------------------------------------------
@@ -279,9 +288,9 @@ func (w *RightNowWidget) Definition() widgets.WidgetDef {
 	}
 }
 
-func (w *RightNowWidget) Fetch(ctx context.Context, _ string, sizeName string) (*widgets.WidgetData, error) {
+func (w *RightNowWidget) Render(ctx context.Context, _ string, sizeName string) (template.HTML, error) {
 	if ctx == nil {
-		return nil, utils.NilContextError
+		return "", utils.NilContextError
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -305,7 +314,7 @@ func (w *RightNowWidget) Fetch(ctx context.Context, _ string, sizeName string) (
 	})
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	data := &RightNowData{
@@ -314,8 +323,5 @@ func (w *RightNowWidget) Fetch(ctx context.Context, _ string, sizeName string) (
 		AssignedCount: assigned,
 	}
 
-	return &widgets.WidgetData{
-		TemplateName: "widget_github_rightnow_" + sizeName,
-		Data:         data,
-	}, nil
+	return renderTemplate("rightnow_"+sizeName+".tmpl", data)
 }
