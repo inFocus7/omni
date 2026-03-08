@@ -43,7 +43,9 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
-func sinceQualifier(since time.Time) string {
+// SinceQualifier formats a time.Time into a GitHub search qualifier.
+// Returns empty string for zero time (no date restriction).
+func SinceQualifier(since time.Time) string {
 	if since.IsZero() {
 		return ""
 	}
@@ -58,7 +60,7 @@ func (c *Client) FetchPullRequests(ctx context.Context, since time.Time) ([]*git
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	query := "is:pr author:@me" + sinceQualifier(since)
+	query := "is:pr author:@me" + SinceQualifier(since)
 	return c.searchIssuesParallel(ctx, "prs", query, opts)
 }
 
@@ -70,7 +72,7 @@ func (c *Client) FetchReviews(ctx context.Context, since time.Time) ([]*github.I
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	query := "is:pr reviewed-by:@me" + sinceQualifier(since)
+	query := "is:pr reviewed-by:@me" + SinceQualifier(since)
 	return c.searchIssuesParallel(ctx, "reviews", query, opts)
 }
 
@@ -82,7 +84,7 @@ func (c *Client) FetchApprovals(ctx context.Context, since time.Time) ([]*github
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	query := "is:pr review:approved reviewed-by:@me" + sinceQualifier(since)
+	query := "is:pr review:approved reviewed-by:@me" + SinceQualifier(since)
 	return c.searchIssuesParallel(ctx, "approvals", query, opts)
 }
 
@@ -94,7 +96,7 @@ func (c *Client) FetchMergedPRs(ctx context.Context, since time.Time) ([]*github
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	query := "is:pr is:merged author:@me" + sinceQualifier(since)
+	query := "is:pr is:merged author:@me" + SinceQualifier(since)
 	return c.searchIssuesParallel(ctx, "merged", query, opts)
 }
 

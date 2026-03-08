@@ -1,0 +1,17 @@
+{{define "widget_github_rightnow_tall"}}
+<div class="widget-fill">
+    <p class="section-label">right now</p>
+    <a class="stat-card stat-card-link" href="/github#open-prs" style="padding:0.5rem 0.75rem" data-kind="open">
+        <span class="stat-num" style="font-size:1.25rem">{{.OpenCount}}</span>
+        <span class="stat-label">open</span>
+    </a>
+    <a class="stat-card stat-card-link" href="/github#review-debt" style="padding:0.5rem 0.75rem;margin-top:0.375rem" data-kind="review-debt">
+        <span class="stat-num" style="font-size:1.25rem">{{.ReviewDebt}}</span>
+        <span class="stat-label">debt</span>
+    </a>
+    <a class="stat-card stat-card-link" href="/github#assigned" style="padding:0.5rem 0.75rem;margin-top:0.375rem" data-kind="assigned">
+        <span class="stat-num" style="font-size:1.25rem">{{.AssignedCount}}</span>
+        <span class="stat-label">assigned</span>
+    </a>
+</div>
+{{end}}

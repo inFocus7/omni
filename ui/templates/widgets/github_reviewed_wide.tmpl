@@ -1,0 +1,13 @@
+{{define "widget_github_reviewed_wide"}}
+<div class="widget-fill">
+    <div>
+        <p class="section-label">reviewed &middot; {{.Filter}}</p>
+        <span class="stat-num">{{.ReviewedCount}}</span>
+        <span class="stat-label">reviewed</span>
+    </div>
+    <div class="widget-fill-end">
+        <span class="stat-sec-num">{{.ApprovedCount}}</span>
+        <span class="stat-sec-label">approved</span>
+    </div>
+</div>
+{{end}}

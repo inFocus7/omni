@@ -1,0 +1,19 @@
+{{define "widget_github_rightnow_wide"}}
+<div class="widget-fill">
+    <p class="section-label">right now</p>
+    <div class="stat-row stat-row-3col" style="margin-bottom:0;flex:1">
+        <a class="stat-card stat-card-link" href="/github#open-prs" data-kind="open">
+            <span class="stat-num">{{.OpenCount}}</span>
+            <span class="stat-label">open</span>
+        </a>
+        <a class="stat-card stat-card-link" href="/github#review-debt" data-kind="review-debt">
+            <span class="stat-num">{{.ReviewDebt}}</span>
+            <span class="stat-label" data-tip="open only &middot; closed &amp; merged excluded">review debt</span>
+        </a>
+        <a class="stat-card stat-card-link" href="/github#assigned" data-kind="assigned">
+            <span class="stat-num">{{.AssignedCount}}</span>
+            <span class="stat-label">assigned</span>
+        </a>
+    </div>
+</div>
+{{end}}

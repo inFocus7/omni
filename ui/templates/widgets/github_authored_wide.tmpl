@@ -1,0 +1,13 @@
+{{define "widget_github_authored_wide"}}
+<div class="widget-fill">
+    <div>
+        <p class="section-label">authored &middot; {{.Filter}}</p>
+        <span class="stat-num">{{.AuthoredCount}}</span>
+        <span class="stat-label">authored</span>
+    </div>
+    <div class="widget-fill-end">
+        <span class="stat-sec-num">{{.MergedCount}}</span>
+        <span class="stat-sec-label">merged</span>
+    </div>
+</div>
+{{end}}

@@ -8,11 +8,22 @@ import (
 )
 
 type Settings struct {
-	GitHub GitHubSettings `json:"github"`
+	GitHub    GitHubSettings    `json:"github"`
+	Dashboard DashboardSettings `json:"dashboard"`
 }
 
 type GitHubSettings struct {
 	Watched []string `json:"watched"`
+}
+
+type DashboardSettings struct {
+	Widgets []DashboardWidget `json:"widgets"`
+}
+
+type DashboardWidget struct {
+	ID       string `json:"id"`
+	SizeName string `json:"size_name"`
+	Position int    `json:"position"`
 }
 
 func configPath() (string, error) {

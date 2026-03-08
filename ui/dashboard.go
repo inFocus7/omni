@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"text/template"
+	"html/template"
 	"time"
 
 	"github.com/google/go-github/v83/github"
@@ -116,6 +116,18 @@ func Pages() (*template.Template, error) {
 
 	if len(pluginMatches) > 0 {
 		t, err = t.ParseFiles(pluginMatches...)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	widgetMatches, err := filepath.Glob(filepath.Join(templatesDir, "widgets", "*.tmpl"))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(widgetMatches) > 0 {
+		t, err = t.ParseFiles(widgetMatches...)
 		if err != nil {
 			return nil, err
 		}

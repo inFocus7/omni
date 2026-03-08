@@ -19,20 +19,79 @@
         <span></span>
         <h1><span class="title-text">DASH</span></h1>
         <div style="display: flex; gap: 0.375rem;">
+            {{if .Widgets}}
+            <button class="back-link" id="edit-toggle" type="button" aria-label="Edit dashboard layout">edit</button>
+            <button class="back-link" id="edit-save" type="button" style="display:none" aria-label="Save dashboard changes">save</button>
+            <button class="back-link" id="edit-cancel" type="button" style="display:none" aria-label="Cancel editing">cancel</button>
+            {{end}}
             <a href="/plugins" class="back-link">plugins</a>
             <a href="/settings" class="back-link">settings</a>
         </div>
     </header>
     <main class="plugins">
-        <nav class="filters" id="filters">
+        <nav class="filters" id="filters" aria-label="Time range filter">
             <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
             <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
             <a href="/?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
             <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
             <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
         </nav>
+        {{if .Widgets}}
+        <div class="widget-grid" id="widget-grid">
+            {{range .Widgets}}
+            <div class="widget" data-widget-id="{{.ID}}" data-size="{{.SizeName}}"
+                 style="grid-column: span {{.W}}; grid-row: span {{.H}}">
+                <div class="widget-controls">
+                    <span class="widget-drag-handle" title="Drag to reorder" aria-hidden="true">⋮⋮</span>
+                    <button class="widget-remove" data-widget-id="{{.ID}}" title="Remove widget">&times;</button>
+                </div>
+                <div class="widget-size-picker" data-widget-id="{{.ID}}"></div>
+                {{if eq .PluginID "github"}}
+                <div class="widget-badge" title="GitHub">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                </div>
+                {{end}}
+                {{.HTML}}
+            </div>
+            {{end}}
+            <div class="widget widget-add" id="widget-add-card" style="display:none" role="button" tabindex="0" aria-label="Add a new widget to dashboard">
+                <span class="widget-add-icon">+</span>
+                <span class="widget-add-label">Add widget</span>
+            </div>
+        </div>
+        {{else}}
+        {{if .GitHub}}
         {{template "github" .GitHub}}
+        {{else}}
+        <div class="empty-dashboard">
+            <p class="empty-dashboard-title">Customize your home page</p>
+            <p class="empty-dashboard-desc">Pin widgets to build your personal dashboard.</p>
+            <button class="empty-dashboard-btn" id="empty-add-widget" type="button">Add your first widget</button>
+        </div>
+        {{end}}
+        {{end}}
     </main>
+
+    <!-- Widget picker modal -->
+    <div class="widget-picker-overlay" id="widget-picker-overlay">
+        <div class="widget-picker" id="widget-picker" role="dialog" aria-modal="true" aria-labelledby="widget-picker-title">
+            <div class="widget-picker-header">
+                <button class="widget-picker-back" id="widget-picker-back" style="display:none" aria-label="Go back to widget list">&larr;</button>
+                <span class="widget-picker-title" id="widget-picker-title">Add Widget</span>
+                <button class="widget-picker-close" id="widget-picker-close" aria-label="Close widget picker">&times;</button>
+            </div>
+            <div class="widget-picker-list" id="widget-picker-list"></div>
+            <div class="widget-picker-preview" id="widget-picker-preview" style="display:none">
+                <span class="widget-picker-preview-title" id="widget-picker-preview-title"></span>
+                <div class="widget-picker-sizes" id="widget-picker-sizes"></div>
+                <div class="widget-picker-preview-area" id="widget-picker-preview-area"></div>
+                <button class="widget-picker-confirm" id="widget-picker-confirm" aria-label="Pin selected widget to dashboard">Pin to dashboard</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script src="/static/vendor/sortable.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

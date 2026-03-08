@@ -1,0 +1,26 @@
+{{define "widget_github_ratio_full"}}
+<div class="widget-fill">
+    <div class="ratio-callout" style="margin-bottom:0">
+        <p class="section-label" style="text-align:center">review ratio &middot; {{.Filter}}</p>
+        <span class="ratio-number" style="font-size:clamp(2rem,6vw,3.5rem)">{{.Ratio}}</span>
+        <div class="ratio-tags">
+            <span class="ratio-tag">author</span>
+            <span class="ratio-sep">&middot;</span>
+            <span class="ratio-tag">reviewer</span>
+        </div>
+        <div class="approval-line">
+            <span class="approval-rate">{{.ApprovalRate}}</span>
+            <span>approval rate</span>
+        </div>
+    </div>
+    <div class="gauge-section" style="margin-top:auto">
+        <div class="gauge-axis">
+            <span>author</span>
+            <span>reviewer</span>
+        </div>
+        <div class="gauge-track" style="--authored-pct: {{printf "%.1f" .AuthoredPct}}">
+            <div class="gauge-marker" style="left: {{printf "%.1f" .ReviewedPct}}%"></div>
+        </div>
+    </div>
+</div>
+{{end}}

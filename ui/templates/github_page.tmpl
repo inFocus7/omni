@@ -34,7 +34,7 @@
     <main class="plugins">
         <div class="plugin">
 
-            <nav class="filters" id="filters">
+            <nav class="filters" id="filters" aria-label="Time range filter">
                 <a href="/github?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
                 <a href="/github?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
                 <a href="/github?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
@@ -89,7 +89,7 @@
                             <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                             <td data-val="{{if isDraft .Draft}}draft{{else}}ready{{end}}">
                                 {{if isDraft .Draft}}
@@ -127,8 +127,8 @@
                             <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -158,7 +158,7 @@
                             <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -190,8 +190,8 @@
                             <td data-val="{{.Title}}" data-tip="{{.Title}}">
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
-                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -213,6 +213,7 @@
 
         </div>
     </main>
+    <div id="toast-container" class="toast-container"></div>
     <script src="/static/app.js"></script>
 </body>
 </html>

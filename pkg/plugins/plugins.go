@@ -1,8 +1,11 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"html/template"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"github.com/google/go-github/v83/github"
 	ghplugin "github.com/infocus7/dash/pkg/plugins/github"
 	"github.com/infocus7/dash/pkg/settings"
+	"github.com/infocus7/dash/pkg/widgets"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -44,15 +48,29 @@ type GitHubDetailData struct {
 	TotalRemoved    string
 }
 
+// RenderedWidget is a pre-rendered widget ready for the dashboard template.
+type RenderedWidget struct {
+	ID       string
+	PluginID string
+	SizeName string
+	W, H     int
+	HTML     template.HTML
+}
+
+// DashboardData is passed to the dashboard template.
 type DashboardData struct {
 	ActiveFilter string
-	GitHub       *GitHubCounts
+	Widgets      []RenderedWidget
+	EditMode     bool
+	// Legacy field kept for backwards compat during migration
+	GitHub *GitHubCounts
 }
 
 type PluginManager struct {
 	ctx          context.Context
 	githubClient *ghplugin.Client
 	settings     *settings.Settings
+	Registry     *widgets.Registry
 }
 
 func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager, error) {
@@ -61,10 +79,17 @@ func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager
 		return nil, err
 	}
 
+	reg := widgets.NewRegistry()
+	reg.Register(ghplugin.NewRatioWidget(ghClient))
+	reg.Register(ghplugin.NewAuthoredWidget(ghClient))
+	reg.Register(ghplugin.NewReviewedWidget(ghClient))
+	reg.Register(ghplugin.NewRightNowWidget(ghClient))
+
 	return &PluginManager{
 		ctx:          ctx,
 		githubClient: ghClient,
 		settings:     s,
+		Registry:     reg,
 	}, nil
 }
 
@@ -86,11 +111,15 @@ func SinceFromFilter(filter string) time.Time {
 	}
 }
 
-func sinceQualifier(since time.Time) string {
-	if since.IsZero() {
-		return ""
+// findSizeOption searches for a size option by name in a widget definition.
+// Returns the size option and true if found, otherwise returns zero value and false.
+func findSizeOption(def widgets.WidgetDef, sizeName string) (widgets.SizeOption, bool) {
+	for _, s := range def.Sizes {
+		if s.Name == sizeName {
+			return s, true
+		}
 	}
-	return " created:>=" + since.Format("2006-01-02")
+	return widgets.SizeOption{}, false
 }
 
 // formatInt formats an integer with comma separators (e.g. 4231 -> "4,231").
@@ -111,10 +140,158 @@ func formatInt(n int) string {
 	return b.String()
 }
 
+// FetchDashboardWidgets fetches and pre-renders pinned widgets from settings.
+func (pm *PluginManager) FetchDashboardWidgets(filter string, tmpl *template.Template) ([]RenderedWidget, error) {
+	pinned := pm.settings.Dashboard.Widgets
+	if len(pinned) == 0 {
+		return nil, nil
+	}
+
+	// Sort by position
+	sorted := make([]settings.DashboardWidget, len(pinned))
+	copy(sorted, pinned)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Position < sorted[j].Position
+	})
+
+	type result struct {
+		index int
+		rw    RenderedWidget
+	}
+
+	results := make([]result, len(sorted))
+	g, ctx := errgroup.WithContext(pm.ctx)
+
+	for i, dw := range sorted {
+		i, dw := i, dw
+		g.Go(func() error {
+			w, ok := pm.Registry.Get(dw.ID)
+			if !ok {
+				return nil // skip unknown widgets
+			}
+
+			def := w.Definition()
+			sizeName := dw.SizeName
+			sizeOpt, found := findSizeOption(def, sizeName)
+			if !found && len(def.Sizes) > 0 {
+				sizeOpt = def.Sizes[0]
+				sizeName = sizeOpt.Name
+			}
+
+			wd, err := w.Fetch(ctx, filter, sizeName)
+			if err != nil {
+				// Render error widget instead of failing the whole dashboard
+				errorHTML := renderWidgetError(dw.ID, err)
+				results[i] = result{
+					index: i,
+					rw: RenderedWidget{
+						ID:       dw.ID,
+						PluginID: def.PluginID,
+						SizeName: sizeName,
+						W:        sizeOpt.W,
+						H:        sizeOpt.H,
+						HTML:     template.HTML(errorHTML),
+					},
+				}
+				return nil
+			}
+
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, wd.TemplateName, wd.Data); err != nil {
+				// Render error widget instead of failing
+				errorHTML := renderWidgetError(dw.ID, err)
+				results[i] = result{
+					index: i,
+					rw: RenderedWidget{
+						ID:       dw.ID,
+						PluginID: def.PluginID,
+						SizeName: sizeName,
+						W:        sizeOpt.W,
+						H:        sizeOpt.H,
+						HTML:     template.HTML(errorHTML),
+					},
+				}
+				return nil
+			}
+
+			results[i] = result{
+				index: i,
+				rw: RenderedWidget{
+					ID:       dw.ID,
+					PluginID: def.PluginID,
+					SizeName: sizeName,
+					W:        sizeOpt.W,
+					H:        sizeOpt.H,
+					HTML:     template.HTML(buf.String()),
+				},
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	rendered := make([]RenderedWidget, 0, len(results))
+	for _, r := range results {
+		if r.rw.ID != "" {
+			rendered = append(rendered, r.rw)
+		}
+	}
+	return rendered, nil
+}
+
+// renderWidgetError creates an HTML error state for a widget
+func renderWidgetError(widgetID string, err error) string {
+	escapedID := template.HTMLEscapeString(widgetID)
+	escapedErr := template.HTMLEscapeString(err.Error())
+	return fmt.Sprintf(`
+		<div class="widget-error" data-widget-id="%s" data-error="%s">
+			<div class="widget-error-icon">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="12" y1="8" x2="12" y2="12"/>
+					<line x1="12" y1="16" x2="12.01" y2="16"/>
+				</svg>
+			</div>
+			<div class="widget-error-title">Failed to load widget</div>
+			<div class="widget-error-message">%s</div>
+		</div>
+	`, escapedID, escapedErr, escapedErr)
+}
+
+// RenderWidgetPreview renders a single widget at a given size for the preview API.
+func (pm *PluginManager) RenderWidgetPreview(widgetID, sizeName, filter string, tmpl *template.Template) (template.HTML, int, int, error) {
+	w, ok := pm.Registry.Get(widgetID)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("unknown widget: %s", widgetID)
+	}
+
+	def := w.Definition()
+	sizeOpt, found := findSizeOption(def, sizeName)
+	if !found {
+		return "", 0, 0, fmt.Errorf("unknown size %q for widget %s", sizeName, widgetID)
+	}
+
+	wd, err := w.Fetch(pm.ctx, filter, sizeName)
+	if err != nil {
+		return "", 0, 0, err
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, wd.TemplateName, wd.Data); err != nil {
+		return "", 0, 0, err
+	}
+
+	return template.HTML(buf.String()), sizeOpt.W, sizeOpt.H, nil
+}
+
 // FetchDashboardData fetches count-only stats for the main dashboard.
+// Kept for backwards compatibility — the old single-card view.
 func (pm *PluginManager) FetchDashboardData(filter string) (*DashboardData, error) {
 	since := SinceFromFilter(filter)
-	sinceQ := sinceQualifier(since)
+	sinceQ := ghplugin.SinceQualifier(since)
 
 	g, ctx := errgroup.WithContext(pm.ctx)
 
@@ -171,36 +348,11 @@ func (pm *PluginManager) FetchDashboardData(filter string) (*DashboardData, erro
 		return nil, err
 	}
 
-	var ratio string
-	switch {
-	case authored == 0 && reviewed == 0:
-		ratio = "—"
-	case authored == 0:
-		ratio = "0 : ∞"
-	default:
-		ratio = fmt.Sprintf("1 : %.1f", float64(reviewed)/float64(authored))
-	}
-
-	var approvalRate string
-	if reviewed > 0 {
-		approvalRate = fmt.Sprintf("%.0f%%", float64(approved)/float64(reviewed)*100)
-	} else {
-		approvalRate = "—"
-	}
-
-	total := authored + reviewed
-	authoredPct, reviewedPct := 50.0, 50.0
-	if total > 0 {
-		authoredPct = float64(authored) / float64(total) * 100
-		reviewedPct = float64(reviewed) / float64(total) * 100
-	}
-
-	var mergeRate string
-	if authored > 0 {
-		mergeRate = fmt.Sprintf("%.0f%%", float64(merged)/float64(authored)*100)
-	} else {
-		mergeRate = "—"
-	}
+	ratio := ghplugin.FormatRatio(authored, reviewed)
+	approvalRate := ghplugin.FormatApprovalRate(approved, reviewed)
+	authoredPct := ghplugin.CalcPercent(authored, reviewed)
+	reviewedPct := ghplugin.CalcPercent(reviewed, authored)
+	mergeRate := ghplugin.FormatMergeRate(merged, authored)
 
 	return &DashboardData{
 		ActiveFilter: filter,
