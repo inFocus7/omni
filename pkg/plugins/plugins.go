@@ -62,8 +62,6 @@ type DashboardData struct {
 	ActiveFilter string
 	Widgets      []RenderedWidget
 	EditMode     bool
-	// Legacy field kept for backwards compat during migration
-	GitHub *GitHubCounts
 }
 
 type PluginManager struct {
@@ -285,93 +283,6 @@ func (pm *PluginManager) RenderWidgetPreview(widgetID, sizeName, filter string, 
 	}
 
 	return template.HTML(buf.String()), sizeOpt.W, sizeOpt.H, nil
-}
-
-// FetchDashboardData fetches count-only stats for the main dashboard.
-// Kept for backwards compatibility — the old single-card view.
-func (pm *PluginManager) FetchDashboardData(filter string) (*DashboardData, error) {
-	since := SinceFromFilter(filter)
-	sinceQ := ghplugin.SinceQualifier(since)
-
-	g, ctx := errgroup.WithContext(pm.ctx)
-
-	var (
-		authored int
-		reviewed int
-		approved int
-		merged   int
-		open     int
-		debt     int
-		assigned int
-	)
-
-	g.Go(func() error {
-		var err error
-		authored, err = pm.githubClient.FetchCount(ctx, "is:pr author:@me"+sinceQ)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		reviewed, err = pm.githubClient.FetchCount(ctx, "is:pr reviewed-by:@me"+sinceQ)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		approved, err = pm.githubClient.FetchCount(ctx, "is:pr review:approved reviewed-by:@me"+sinceQ)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		merged, err = pm.githubClient.FetchCount(ctx, "is:pr is:merged author:@me"+sinceQ)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		// No since qualifier — open is live state, not a windowed event.
-		open, err = pm.githubClient.FetchCount(ctx, "is:pr is:open author:@me")
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		// No since qualifier — review requests are live state. is:open excludes merged/closed PRs.
-		debt, err = pm.githubClient.FetchCount(ctx, "is:pr is:open review-requested:@me")
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		// No since qualifier — assignments are live state.
-		assigned, err = pm.githubClient.FetchCount(ctx, "is:issue is:open assignee:@me")
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	ratio := ghplugin.FormatRatio(authored, reviewed)
-	approvalRate := ghplugin.FormatApprovalRate(approved, reviewed)
-	authoredPct := ghplugin.CalcPercent(authored, reviewed)
-	reviewedPct := ghplugin.CalcPercent(reviewed, authored)
-	mergeRate := ghplugin.FormatMergeRate(merged, authored)
-
-	return &DashboardData{
-		ActiveFilter: filter,
-		GitHub: &GitHubCounts{
-			Filter:        filter,
-			AuthoredCount: authored,
-			ReviewedCount: reviewed,
-			ApprovedCount: approved,
-			MergedCount:   merged,
-			OpenCount:     open,
-			ReviewDebt:    debt,
-			AssignedCount: assigned,
-			Ratio:         ratio,
-			ApprovalRate:  approvalRate,
-			AuthoredPct:   authoredPct,
-			ReviewedPct:   reviewedPct,
-			MergeRate:     mergeRate,
-		},
-	}, nil
 }
 
 // FetchGitHubDetail fetches full list data for the /github plugin page.
