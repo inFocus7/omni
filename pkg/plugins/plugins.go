@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/go-github/v83/github"
-	ghplugin "github.com/infocus7/dashie/pkg/plugins/github"
-	"github.com/infocus7/dashie/pkg/settings"
+	ghplugin "github.com/infocus7/dash/pkg/plugins/github"
+	"github.com/infocus7/dash/pkg/settings"
 	"golang.org/x/sync/errgroup"
 )
 

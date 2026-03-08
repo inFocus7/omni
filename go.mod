@@ -1,4 +1,4 @@
-module github.com/infocus7/dashie
+module github.com/infocus7/dash
 
 go 1.26.0
 

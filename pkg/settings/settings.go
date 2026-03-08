@@ -20,7 +20,7 @@ func configPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "dashie", "settings.json"), nil
+	return filepath.Join(dir, "dash", "settings.json"), nil
 }
 
 func Load() (*Settings, error) {

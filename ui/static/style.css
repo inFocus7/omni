@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
 :root {
   --bg:         #0e0e10;
@@ -71,6 +71,33 @@ body {
   color: var(--text-dim, #666);
   font-weight: 400;
   margin: 0 0.1rem;
+}
+
+/* ── DASH title hover effect ─────────────────────────────── */
+
+.title-text {
+  display: inline-flex;
+  cursor: default;
+  user-select: none;
+}
+
+.title-char {
+  display: inline-block;
+  padding: 0 0.02em;
+  -webkit-text-stroke: 0px transparent;
+  font-weight: 500;
+  transition: padding 0.35s ease,
+              -webkit-text-stroke 0.35s ease,
+              opacity 0.3s ease,
+              font-weight 0.35s ease;
+}
+
+.site-header h1:hover .title-char {
+  opacity: 0.75;
+}
+
+.site-header h1:hover .title-char.title-char--near {
+  opacity: 1;
 }
 
 .site-header h1,

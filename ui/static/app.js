@@ -117,6 +117,45 @@
     }
   }, true);
 
+  // ── Per-character hover effect for .title-text ────────
+  document.querySelectorAll('.title-text').forEach(el => {
+    const text = el.textContent;
+    el.innerHTML = [...text].map(ch =>
+      `<span class="title-char">${ch}</span>`
+    ).join('');
+
+    const h1 = el.closest('h1, .plugin-label') || el.parentElement;
+    const chars = [...el.querySelectorAll('.title-char')];
+    const basePad = 0.02;
+    const peakPad = 0.14;
+    const peakStroke = 0.8;
+    const baseWeight = 500;
+    const dimWeight = 300;
+
+    h1.addEventListener('mousemove', (e) => {
+      const h1Rect = h1.getBoundingClientRect();
+      chars.forEach(ch => {
+        const rect = ch.getBoundingClientRect();
+        const center = rect.left + rect.width / 2;
+        const dist = Math.abs(e.clientX - center) / h1Rect.width;
+        const t = Math.max(0, 1 - dist * 4);
+        ch.style.padding = `0 ${basePad + (peakPad - basePad) * t}em`;
+        ch.style.webkitTextStroke = `${peakStroke * t}px var(--text)`;
+        ch.style.fontWeight = dimWeight + (baseWeight - dimWeight) * t;
+        ch.classList.toggle('title-char--near', t > 0.2);
+      });
+    });
+
+    h1.addEventListener('mouseleave', () => {
+      chars.forEach(ch => {
+        ch.style.padding = `0 ${basePad}em`;
+        ch.style.webkitTextStroke = '0px transparent';
+        ch.style.fontWeight = baseWeight;
+        ch.classList.remove('title-char--near');
+      });
+    });
+  });
+
   initNav();
   initSortables();
 

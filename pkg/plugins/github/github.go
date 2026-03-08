@@ -11,8 +11,8 @@ import (
 	"os"
 
 	"github.com/google/go-github/v83/github"
-	"github.com/infocus7/dashie/internal/cache"
-	"github.com/infocus7/dashie/pkg/utils"
+	"github.com/infocus7/dash/internal/cache"
+	"github.com/infocus7/dash/pkg/utils"
 	"golang.org/x/sync/errgroup"
 )
 
