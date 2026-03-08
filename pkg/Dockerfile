@@ -7,14 +7,14 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -o /dash ./app/main.go
+RUN CGO_ENABLED=0 go build -o /omni ./app/main.go
 
 FROM gcr.io/distroless/static-debian12
 
-COPY --from=build /dash /dash
+COPY --from=build /omni /omni
 COPY ui/templates/ /ui/templates/
 COPY ui/static/ /ui/static/
 
 EXPOSE 8080
 
-ENTRYPOINT ["/dash"]
+ENTRYPOINT ["/omni"]

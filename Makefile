@@ -7,7 +7,7 @@ run-live: check-deps
 	air
 
 docker-build:
-	docker build -f pkg/Dockerfile -t dash .
+	docker build -f pkg/Dockerfile -t omni .
 
 check-deps:
 	@command -v trivy >/dev/null 2>&1 || { echo "trivy is not installed. Install it: https://aquasecurity.github.io/trivy"; exit 1; }
@@ -15,4 +15,4 @@ check-deps:
 	@echo "All dependencies found."
 
 security-scan: check-deps
-	trivy image dash
+	trivy image omni

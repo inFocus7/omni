@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/google/go-github/v83/github"
-	ghplugin "github.com/infocus7/dash/pkg/plugins/github"
-	"github.com/infocus7/dash/pkg/plugins/spacer"
-	"github.com/infocus7/dash/pkg/settings"
-	"github.com/infocus7/dash/pkg/widgets"
+	ghplugin "github.com/infocus7/omni/pkg/plugins/github"
+	"github.com/infocus7/omni/pkg/plugins/spacer"
+	"github.com/infocus7/omni/pkg/settings"
+	"github.com/infocus7/omni/pkg/widgets"
 	"golang.org/x/sync/errgroup"
 )
 

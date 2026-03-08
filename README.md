@@ -1,4 +1,4 @@
-# Dashie
+# OMNI
 
 A developer dashboard. Primarily made for myself to track my contribution ratio (PR:Review ratio).
 

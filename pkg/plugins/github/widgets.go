@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"html/template"
 
-	"github.com/infocus7/dash/pkg/utils"
-	"github.com/infocus7/dash/pkg/widgets"
+	"github.com/infocus7/omni/pkg/utils"
+	"github.com/infocus7/omni/pkg/widgets"
 	"golang.org/x/sync/errgroup"
 )
 

@@ -10,9 +10,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/infocus7/dash/pkg/plugins"
-	"github.com/infocus7/dash/pkg/settings"
-	"github.com/infocus7/dash/ui"
+	"github.com/infocus7/omni/pkg/plugins"
+	"github.com/infocus7/omni/pkg/settings"
+	"github.com/infocus7/omni/ui"
 
 	"github.com/gin-gonic/gin"
 )

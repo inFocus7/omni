@@ -4,7 +4,7 @@ import (
 	"context"
 	"html/template"
 
-	"github.com/infocus7/dash/pkg/widgets"
+	"github.com/infocus7/omni/pkg/widgets"
 )
 
 // Widget is an invisible spacer that occupies grid cells for layout purposes.

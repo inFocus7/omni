@@ -1,4 +1,4 @@
-module github.com/infocus7/dash
+module github.com/infocus7/omni
 
 go 1.26.0
 

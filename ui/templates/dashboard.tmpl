@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DASH</title>
+    <title>OMNI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <body>
     <header class="site-header">
         <span></span>
-        <h1><span class="title-text">DASH</span></h1>
+        <h1><span class="title-text">OMNI</span></h1>
         <div style="display: flex; gap: 0.375rem;">
             {{if .Widgets}}
             <button class="back-link" id="edit-toggle" type="button" aria-label="Edit dashboard layout">edit</button>
@@ -60,15 +60,11 @@
             </div>
         </div>
         {{else}}
-        {{if .GitHub}}
-        {{template "github" .GitHub}}
-        {{else}}
         <div class="empty-dashboard">
             <p class="empty-dashboard-title">Customize your home page</p>
             <p class="empty-dashboard-desc">Pin widgets to build your personal dashboard.</p>
             <button class="empty-dashboard-btn" id="empty-add-widget" type="button">Add your first widget</button>
         </div>
-        {{end}}
         {{end}}
     </main>
 
