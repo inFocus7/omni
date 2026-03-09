@@ -266,6 +266,7 @@
     const editBtn = document.getElementById('edit-toggle');
     const saveBtn = document.getElementById('edit-save');
     const cancelBtn = document.getElementById('edit-cancel');
+    const resetBtn = document.getElementById('edit-reset');
     const addCard = document.getElementById('widget-add-card');
     const emptyAddBtn = document.getElementById('empty-add-widget');
 
@@ -284,6 +285,13 @@
     let widgetDefs = null;
     let gridOverlay = false;
     let overlayEl = null;
+
+    // Per-breakpoint edit buffers: cols → [{id, size_name}]
+    // Captures DOM state when switching away so edits aren't lost
+    const editBuffers = {};
+    const originalBuffers = {};  // snapshot at edit-enter for reset
+    // Track which breakpoints were modified during this edit session
+    const modifiedBreakpoints = new Set();
     if (typeof Sortable !== 'undefined') {
       sortable = Sortable.create(grid, {
         animation: 200,
@@ -316,6 +324,16 @@
       dirty = false;
       populateSizePickers();
 
+      // Clear buffers from any previous edit session
+      Object.keys(editBuffers).forEach(k => delete editBuffers[k]);
+      Object.keys(originalBuffers).forEach(k => delete originalBuffers[k]);
+      modifiedBreakpoints.clear();
+
+      // Snapshot current state as original for reset
+      const currentCols = parseInt(grid.dataset.activeCols, 10) || 5;
+      originalBuffers[currentCols] = readGridState();
+      editBuffers[currentCols] = readGridState();
+
       // Show breakpoint tabs in per-breakpoint mode
       if (isPerBreakpoint && bpTabs) {
         bpTabs.classList.add('visible');
@@ -330,10 +348,8 @@
         applyGridConstraint(editCols);
 
         // Fetch the correct breakpoint's widgets if not already showing
-        const currentDataCols = parseInt(grid.dataset.activeCols, 10) || 5;
-        if (currentDataCols !== editCols) {
-          const activeTab = bpTabs.querySelector(`.breakpoint-tab[data-cols="${editCols}"]`);
-          if (activeTab) activeTab.click();
+        if (currentCols !== editCols) {
+          loadBreakpointGrid(editCols);
         }
       }
     }
@@ -353,6 +369,61 @@
       if (addCard) addCard.style.display = 'none';
       if (sortable) sortable.option('disabled', true);
       if (bpTabs) bpTabs.classList.remove('visible');
+    }
+
+    // Read current widget state from the DOM
+    function readGridState() {
+      return [...grid.querySelectorAll('.widget[data-widget-id]')]
+        .map(el => ({ id: el.dataset.widgetId, size_name: el.dataset.size }));
+    }
+
+    // Capture current DOM into the edit buffer for the given cols
+    function captureToBuffer(cols) {
+      editBuffers[cols] = readGridState();
+    }
+
+    // Render widgets from a buffer into the grid (used when switching tabs from buffer)
+    function applyBufferToGrid(widgets, cols) {
+      // Remove existing widgets
+      grid.querySelectorAll('.widget:not(.widget-add)').forEach(w => w.remove());
+
+      if (!widgets || widgets.length === 0) {
+        applyGridConstraint(cols);
+        return Promise.resolve();
+      }
+
+      // Fetch rendered HTML for these widgets at this breakpoint
+      const filter = getActiveFilter();
+      return fetch(`/?cols=${cols}&filter=${encodeURIComponent(filter)}`)
+        .then(r => r.text())
+        .then(html => {
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const newGrid = doc.getElementById('widget-grid');
+          if (!newGrid) return;
+
+          // Build a lookup of rendered widgets by ID
+          const rendered = {};
+          newGrid.querySelectorAll('.widget:not(.widget-add)').forEach(w => {
+            rendered[w.dataset.widgetId] = w;
+          });
+
+          const ac = document.getElementById('widget-add-card');
+          // Insert in buffer order, matching by ID
+          widgets.forEach(bw => {
+            const el = rendered[bw.id];
+            if (el) {
+              // Apply the buffered size (may differ from server)
+              el.dataset.size = bw.size_name;
+              if (ac) grid.insertBefore(el, ac);
+              else grid.appendChild(el);
+            }
+          });
+
+          if (sortable) sortable.option('disabled', false);
+          populateSizePickers();
+          applyGridConstraint(cols);
+        })
+        .catch(err => console.error('Failed to apply buffer:', err));
     }
 
     function applyGridConstraint(cols) {
@@ -434,7 +505,7 @@
         .catch(err => console.error('Failed to load breakpoint layout:', err));
     }
 
-    // Breakpoint tab click — switch to that breakpoint's layout
+    // Breakpoint tab click — capture current, switch to target
     if (bpTabs) {
       bpTabs.addEventListener('click', (e) => {
         const tab = e.target.closest('.breakpoint-tab');
@@ -442,10 +513,26 @@
         const cols = parseInt(tab.dataset.cols, 10);
         if (!cols || cols === editCols) return;
 
+        // Capture current breakpoint's DOM state before switching
+        captureToBuffer(editCols);
+        modifiedBreakpoints.add(String(editCols));
+
+        const prevCols = editCols;
         editCols = cols;
         bpTabs.querySelectorAll('.breakpoint-tab').forEach(t => t.classList.toggle('active', t === tab));
-        applyGridConstraint(cols);
-        loadBreakpointGrid(cols);
+
+        // Load from buffer if we have edits, otherwise fetch from server
+        if (editBuffers[cols]) {
+          applyBufferToGrid(editBuffers[cols], cols);
+        } else {
+          loadBreakpointGrid(cols).then(() => {
+            // Snapshot the freshly loaded state as original for reset
+            if (!originalBuffers[cols]) {
+              originalBuffers[cols] = readGridState();
+            }
+            editBuffers[cols] = readGridState();
+          });
+        }
       });
     }
 
@@ -471,14 +558,30 @@
         const sourceCols = parseInt(opt.dataset.sourceCols, 10);
         copyMenu.classList.remove('open');
 
-        fetch(`/api/dashboard/layouts/${editCols}/copy-from/${sourceCols}`, { method: 'POST' })
-          .then(r => r.json())
-          .then(data => {
-            if (data.ok) {
-              loadBreakpointGrid(editCols);
-            }
-          })
-          .catch(err => console.error('Failed to copy layout:', err));
+        // Copy from source buffer (or fetch if not yet loaded)
+        const doApply = (widgets) => {
+          editBuffers[editCols] = [...widgets];
+          modifiedBreakpoints.add(String(editCols));
+          applyBufferToGrid(editBuffers[editCols], editCols);
+        };
+
+        if (editBuffers[sourceCols]) {
+          doApply(editBuffers[sourceCols]);
+        } else {
+          // Fetch source breakpoint, then copy
+          const filter = getActiveFilter();
+          fetch(`/?cols=${sourceCols}&filter=${encodeURIComponent(filter)}`)
+            .then(r => r.text())
+            .then(html => {
+              const doc = new DOMParser().parseFromString(html, 'text/html');
+              const srcGrid = doc.getElementById('widget-grid');
+              if (!srcGrid) return;
+              const widgets = [...srcGrid.querySelectorAll('.widget[data-widget-id]')]
+                .map(el => ({ id: el.dataset.widgetId, size_name: el.dataset.size }));
+              doApply(widgets);
+            })
+            .catch(err => console.error('Failed to copy layout:', err));
+        }
       });
 
       // Close menu when clicking elsewhere
@@ -489,22 +592,38 @@
 
     editBtn.addEventListener('click', enterEditMode);
 
-    // Save — collect final state from DOM and bulk-save
+    // Save — collect all modified breakpoints and bulk-save
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
-        const widgets = [...grid.querySelectorAll('.widget[data-widget-id]')]
-          .map(el => ({ id: el.dataset.widgetId, size_name: el.dataset.size }));
-        const body = { widgets };
+        // Capture the currently visible breakpoint
+        captureToBuffer(editCols);
+        modifiedBreakpoints.add(String(editCols));
+
         if (isPerBreakpoint) {
-          body.cols = String(editCols);
+          // Build layouts map from all modified buffers
+          const layouts = {};
+          modifiedBreakpoints.forEach(cols => {
+            if (editBuffers[cols]) {
+              layouts[cols] = editBuffers[cols];
+            }
+          });
+          fetch('/api/dashboard/widgets', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ layouts })
+          })
+          .then(() => window.location.reload())
+          .catch(err => console.error('Failed to save dashboard:', err));
+        } else {
+          const widgets = readGridState();
+          fetch('/api/dashboard/widgets', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ widgets })
+          })
+          .then(() => window.location.reload())
+          .catch(err => console.error('Failed to save dashboard:', err));
         }
-        fetch('/api/dashboard/widgets', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        .then(() => window.location.reload())
-        .catch(err => console.error('Failed to save dashboard:', err));
       });
     }
 
@@ -512,6 +631,23 @@
     if (cancelBtn) {
       cancelBtn.addEventListener('click', () => {
         window.location.reload();
+      });
+    }
+
+    // Reset — restore only the current breakpoint to its original state
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        const key = editCols;
+        if (originalBuffers[key]) {
+          editBuffers[key] = [...originalBuffers[key]];
+          modifiedBreakpoints.delete(String(key));
+          applyBufferToGrid(editBuffers[key], key);
+        } else {
+          // No original snapshot — reload from server
+          delete editBuffers[key];
+          modifiedBreakpoints.delete(String(key));
+          loadBreakpointGrid(key);
+        }
       });
     }
 

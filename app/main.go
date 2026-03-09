@@ -440,7 +440,10 @@ func main() {
 	})
 
 	// Bulk-save the entire dashboard widget list (used by edit-mode save).
-	// When `cols` is present and layout_mode is per-breakpoint, saves to Layouts[cols].
+	// Accepts either:
+	//   { widgets: [...] }                            — auto mode
+	//   { cols: "5", widgets: [...] }                 — single breakpoint
+	//   { layouts: { "5": [...], "3": [...], ... } }  — all breakpoints at once
 	r.PUT("/api/dashboard/widgets", func(c *gin.Context) {
 		var req struct {
 			Cols    string `json:"cols"`
@@ -448,38 +451,55 @@ func main() {
 				ID       string `json:"id"`
 				SizeName string `json:"size_name"`
 			} `json:"widgets"`
+			Layouts map[string][]struct {
+				ID       string `json:"id"`
+				SizeName string `json:"size_name"`
+			} `json:"layouts"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
 
-		list := make([]settings.DashboardWidget, 0, len(req.Widgets))
-		seen := make(map[string]bool)
-		for i, w := range req.Widgets {
-			if _, ok := pm.Registry.Get(w.ID); !ok {
-				continue
+		buildList := func(raw []struct {
+			ID       string `json:"id"`
+			SizeName string `json:"size_name"`
+		}) []settings.DashboardWidget {
+			list := make([]settings.DashboardWidget, 0, len(raw))
+			seen := make(map[string]bool)
+			for i, w := range raw {
+				if _, ok := pm.Registry.Get(w.ID); !ok {
+					continue
+				}
+				if seen[w.ID] {
+					continue
+				}
+				seen[w.ID] = true
+				list = append(list, settings.DashboardWidget{
+					ID:       w.ID,
+					SizeName: w.SizeName,
+					Position: i,
+				})
 			}
-			// Allow multiple instances of the same widget type (e.g. spacer:0, spacer:1)
-			if seen[w.ID] {
-				continue
-			}
-			seen[w.ID] = true
-			list = append(list, settings.DashboardWidget{
-				ID:       w.ID,
-				SizeName: w.SizeName,
-				Position: i,
-			})
+			return list
 		}
 
-		// Per-breakpoint: save to specific layout slot
-		if req.Cols != "" && s.Dashboard.LayoutMode == "per-breakpoint" {
+		// Multi-breakpoint save: all layouts at once
+		if req.Layouts != nil && s.Dashboard.LayoutMode == "per-breakpoint" {
 			if s.Dashboard.Layouts == nil {
 				s.Dashboard.Layouts = make(map[string][]settings.DashboardWidget)
 			}
-			s.Dashboard.Layouts[req.Cols] = list
+			for cols, widgets := range req.Layouts {
+				s.Dashboard.Layouts[cols] = buildList(widgets)
+			}
+		} else if req.Cols != "" && s.Dashboard.LayoutMode == "per-breakpoint" {
+			// Single breakpoint save
+			if s.Dashboard.Layouts == nil {
+				s.Dashboard.Layouts = make(map[string][]settings.DashboardWidget)
+			}
+			s.Dashboard.Layouts[req.Cols] = buildList(req.Widgets)
 		} else {
-			s.Dashboard.Widgets = list
+			s.Dashboard.Widgets = buildList(req.Widgets)
 		}
 
 		if err := s.Save(); err != nil {
