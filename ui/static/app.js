@@ -274,7 +274,7 @@
     }
 
     const gridToggleBtn = document.getElementById('edit-grid-toggle');
-    const editToolbar = document.getElementById('edit-toolbar');
+    const editActions = document.getElementById('edit-actions');
 
     if (!grid || !editBtn) return;
 
@@ -310,9 +310,7 @@
       editing = true;
       grid.classList.add('widget-grid--editing');
       editBtn.style.display = 'none';
-      if (editToolbar) editToolbar.classList.add('visible');
-      if (saveBtn) saveBtn.style.display = '';
-      if (cancelBtn) cancelBtn.style.display = '';
+      if (editActions) editActions.style.display = '';
       if (addCard) addCard.style.display = '';
       if (sortable) sortable.option('disabled', false);
       dirty = false;
@@ -350,10 +348,8 @@
       grid.style.gridTemplateColumns = '';
       gridOverlay = false;
       editBtn.style.display = '';
-      if (editToolbar) editToolbar.classList.remove('visible');
+      if (editActions) editActions.style.display = 'none';
       if (gridToggleBtn) gridToggleBtn.classList.remove('active');
-      if (saveBtn) saveBtn.style.display = 'none';
-      if (cancelBtn) cancelBtn.style.display = 'none';
       if (addCard) addCard.style.display = 'none';
       if (sortable) sortable.option('disabled', true);
       if (bpTabs) bpTabs.classList.remove('visible');

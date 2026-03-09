@@ -3,23 +3,27 @@
         <span></span>
         <h1><span class="title-text">OMNI</span></h1>
         <div style="display: flex; gap: 0.375rem;">
-            {{if .Widgets}}
-            <button class="back-link" id="edit-toggle" type="button" aria-label="Edit dashboard layout">edit</button>
-            <button class="back-link" id="edit-save" type="button" style="display:none" aria-label="Save dashboard changes">save</button>
-            <button class="back-link" id="edit-cancel" type="button" style="display:none" aria-label="Cancel editing">cancel</button>
-            {{end}}
             <a href="/plugins" class="back-link">plugins</a>
             <a href="/settings" class="back-link">settings</a>
         </div>
     </header>
     <main class="plugins">
-        <nav class="filters" id="filters" aria-label="Time range filter">
-            <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
-            <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
-            <a href="/?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
-            <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
-            <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
-        </nav>
+        <div class="filters-row">
+            <nav class="filters" id="filters" aria-label="Time range filter">
+                <a href="/?filter=1d"  {{if eq .ActiveFilter "1d"}}class="active"{{end}}>1d</a>
+                <a href="/?filter=7d"  {{if eq .ActiveFilter "7d"}}class="active"{{end}}>7d</a>
+                <a href="/?filter=1mo"  {{if eq .ActiveFilter "1mo"}}class="active"{{end}}>1mo</a>
+                <a href="/?filter=ytd" {{if eq .ActiveFilter "ytd"}}class="active"{{end}}>ytd</a>
+                <a href="/?filter=all" {{if eq .ActiveFilter "all"}}class="active"{{end}}>all</a>
+            </nav>
+            {{if .Widgets}}
+            <button class="edit-trigger" id="edit-toggle" type="button" aria-label="Edit dashboard layout">edit</button>
+            <div class="edit-actions" id="edit-actions" style="display:none">
+                <button class="edit-action-btn edit-action-btn--save" id="edit-save" type="button">save</button>
+                <button class="edit-action-btn" id="edit-cancel" type="button">cancel</button>
+            </div>
+            {{end}}
+        </div>
         {{if .Widgets}}
         <!-- Breakpoint tabs (shown in edit mode when per-breakpoint) -->
         <div class="breakpoint-tabs" id="breakpoint-tabs">
@@ -30,9 +34,7 @@
                 <button class="breakpoint-copy-btn" id="breakpoint-copy-btn" title="Copy layout from another breakpoint">copy from...</button>
                 <div class="breakpoint-copy-menu" id="breakpoint-copy-menu"></div>
             </div>
-        </div>
-        <div class="edit-toolbar" id="edit-toolbar">
-            <button class="edit-toolbar-btn" id="edit-grid-toggle" type="button" aria-label="Toggle grid overlay" title="Show grid lines">grid</button>
+            <button class="edit-toolbar-btn" id="edit-grid-toggle" type="button" aria-label="Toggle grid overlay" title="Show grid lines" style="margin-left:auto">grid</button>
         </div>
         <div class="widget-grid" id="widget-grid" data-layout-mode="{{.LayoutMode}}" data-active-cols="{{.ActiveCols}}">
             {{range .Widgets}}

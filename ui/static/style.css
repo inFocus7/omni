@@ -168,6 +168,13 @@ button.back-link { cursor: pointer; }
 
 /* ── Filters ─────────────────────────────────────────────── */
 
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
 .filters {
   display: flex;
   align-items: center;
@@ -176,8 +183,67 @@ button.back-link { cursor: pointer; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-bottom: 1.5rem;
   width: fit-content;
+}
+
+.filters-row .filters {
+  margin-bottom: 0;
+}
+
+.edit-trigger {
+  margin-left: auto;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+
+.edit-trigger:hover {
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.edit-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.edit-action-btn {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-3);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.edit-action-btn:hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+
+.edit-action-btn--save {
+  color: var(--text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.edit-action-btn--save:hover {
+  opacity: 0.9;
+  color: var(--text);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .filters a {
@@ -1664,19 +1730,9 @@ a:hover { text-decoration: underline; }
 
 /* ── Edit toolbar (sits above grid in content area) ─────── */
 
-.edit-toolbar {
-  display: none;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.edit-toolbar.visible {
-  display: flex;
-}
-
+/* grid toggle lives inside breakpoint-tabs now */
 .edit-toolbar-btn {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: 0.75rem;
   font-weight: 400;
   color: var(--text-3);
