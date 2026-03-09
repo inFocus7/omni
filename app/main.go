@@ -16,6 +16,7 @@ import (
 	"github.com/infocus7/omni/pkg/settings"
 	"github.com/infocus7/omni/ui"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -103,6 +104,7 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 	r.Use(func(c *gin.Context) {
 		start := time.Now()
 		c.Next() // process
