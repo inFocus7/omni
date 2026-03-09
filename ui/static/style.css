@@ -172,7 +172,7 @@ button.back-link { cursor: pointer; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .filters {
@@ -184,6 +184,7 @@ button.back-link { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   width: fit-content;
+  margin-bottom: 0.5rem;
 }
 
 .filters-row .filters {
@@ -670,6 +671,7 @@ a:hover { text-decoration: underline; }
 /* ── Detail sections ─────────────────────────────────────── */
 
 .detail-section {
+  /*margin-top: 0.5rem;*/
   margin-bottom: 0;
 }
 
