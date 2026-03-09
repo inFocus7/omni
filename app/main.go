@@ -118,7 +118,10 @@ func main() {
 			Dur("latency", duration).
 			Msg("handled request")
 	})
-	r.Static("/static", "./ui/static")
+	r.Group("/static", func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Next()
+	}).Static("/", "./ui/static")
 
 	r.NoRoute(func(c *gin.Context) {
 		c.Status(http.StatusNotFound)
