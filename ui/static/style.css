@@ -157,6 +157,7 @@ main { flex: 1; width: 100%; }
   color: var(--text);
 }
 
+
 .back-link svg {
   width: 12px;
   height: 12px;
@@ -1495,17 +1496,259 @@ a:hover { text-decoration: underline; }
 
 /* ── Responsive widget grid ─────────────────────────────── */
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .widget-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 479px) {
   .widget-grid { grid-template-columns: repeat(2, 1fr); }
   .plugins { max-width: 100%; }
 }
 
-@media (max-width: 400px) {
-  .widget-grid { grid-template-columns: 1fr; }
+/* ── Breakpoint tabs (edit mode, per-breakpoint) ────────── */
+
+.breakpoint-tabs {
+  display: none;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  width: fit-content;
+}
+
+.breakpoint-tabs.visible {
+  display: flex;
+}
+
+.breakpoint-tab {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-3);
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.breakpoint-tab:hover {
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.breakpoint-tab.active {
+  color: var(--text);
+  font-weight: 500;
+  background: var(--surface-2);
+}
+
+.breakpoint-copy-wrapper {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.breakpoint-copy-btn {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-3);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.breakpoint-copy-btn:hover {
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.breakpoint-copy-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  padding: 0.25rem;
+}
+
+.breakpoint-copy-menu.open {
+  display: block;
+}
+
+.breakpoint-copy-option {
+  display: block;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-2);
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+
+.breakpoint-copy-option:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Constrained grid (viewport simulation in edit mode) ── */
+
+.widget-grid--constrained {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.widget-grid--constrained[data-sim-cols="3"] {
+  max-width: 620px;
+}
+
+.widget-grid--constrained[data-sim-cols="2"] {
+  max-width: 380px;
+}
+
+/* ── Grid overlay (edit mode, toggleable) ───────────────── */
+
+.grid-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  grid-template-columns: inherit;
+  grid-auto-rows: 130px;
+  gap: 0.75rem;
+}
+
+.widget-grid--show-grid {
+  position: relative;
+}
+
+.widget-grid--show-grid::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.widget-grid--show-grid .grid-overlay {
+  display: grid;
+}
+
+.widget-grid--show-grid > *:not(.grid-overlay) {
+  z-index: 1;
+  position: relative;
+}
+
+.grid-overlay-cell {
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  opacity: 0.35;
+}
+
+/* ── Edit toolbar (sits above grid in content area) ─────── */
+
+.edit-toolbar {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.edit-toolbar.visible {
+  display: flex;
+}
+
+.edit-toolbar-btn {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-3);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.edit-toolbar-btn:hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+
+.edit-toolbar-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* ── Empty breakpoint message ────────────────────────────── */
+
+.breakpoint-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--text-3);
+  font-size: 0.875rem;
+}
+
+.breakpoint-empty-btn {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  margin-top: 0.75rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.breakpoint-empty-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--text-3);
+}
+
+/* On small screens, skip viewport simulation — edit at native size */
+@media (max-width: 767px) {
+  .breakpoint-tabs.visible {
+    flex-wrap: wrap;
+  }
+  .widget-grid--constrained {
+    max-width: none;
+    border: none;
+    padding: 0;
+  }
+  .widget-grid--constrained[data-sim-cols="3"],
+  .widget-grid--constrained[data-sim-cols="2"] {
+    max-width: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .breakpoint-copy-wrapper {
+    margin-left: 0;
+    margin-top: 0.25rem;
+  }
 }
 
 /* ── Footer ─────────────────────────────────────────────── */
@@ -1602,7 +1845,7 @@ a:hover { text-decoration: underline; }
   filter: drop-shadow(0 0 8px rgba(230, 51, 41, 0.5));
 }
 
-@media (max-width: 640px) {
+@media (max-width: 479px) {
   .footer-links { gap: 1.5rem; }
   .footer-bottom { flex-direction: column; gap: 0.75rem; text-align: center; }
   .footer-left, .footer-right { text-align: center; }

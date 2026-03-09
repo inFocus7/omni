@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -128,9 +129,20 @@ func main() {
 	r.GET("/", func(c *gin.Context) {
 		filter := c.DefaultQuery("filter", "7d")
 
+		// Determine active column count (defaults to 5 = desktop)
+		cols := 5
+		if q := c.Query("cols"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && (n == 5 || n == 3 || n == 2) {
+				cols = n
+			}
+		}
+
+		layoutMode := s.Dashboard.LayoutMode
+		widgetList := s.Dashboard.WidgetsForCols(cols)
+
 		// Use widget-based dashboard if user has pinned widgets
-		if len(s.Dashboard.Widgets) > 0 {
-			rendered, err := pm.FetchDashboardWidgets(filter)
+		if len(widgetList) > 0 {
+			rendered, err := pm.FetchDashboardWidgets(filter, cols)
 			if err != nil {
 				respondError(c, logger, http.StatusInternalServerError, err, "failed to fetch dashboard widgets")
 				return
@@ -139,6 +151,8 @@ func main() {
 			data := &plugins.DashboardData{
 				ActiveFilter: filter,
 				Widgets:      rendered,
+				LayoutMode:   layoutMode,
+				ActiveCols:   cols,
 			}
 			if err := render(c, "dashboard.tmpl", data); err != nil {
 				respondError(c, logger, http.StatusInternalServerError, err, "failed to render dashboard template")
@@ -149,6 +163,8 @@ func main() {
 		// Empty dashboard — show empty state (no widgets fetched)
 		data := &plugins.DashboardData{
 			ActiveFilter: filter,
+			LayoutMode:   layoutMode,
+			ActiveCols:   cols,
 		}
 		if err := render(c, "dashboard.tmpl", data); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render dashboard template")
@@ -424,8 +440,10 @@ func main() {
 	})
 
 	// Bulk-save the entire dashboard widget list (used by edit-mode save).
+	// When `cols` is present and layout_mode is per-breakpoint, saves to Layouts[cols].
 	r.PUT("/api/dashboard/widgets", func(c *gin.Context) {
 		var req struct {
+			Cols    string `json:"cols"`
 			Widgets []struct {
 				ID       string `json:"id"`
 				SizeName string `json:"size_name"`
@@ -453,7 +471,90 @@ func main() {
 				Position: i,
 			})
 		}
-		s.Dashboard.Widgets = list
+
+		// Per-breakpoint: save to specific layout slot
+		if req.Cols != "" && s.Dashboard.LayoutMode == "per-breakpoint" {
+			if s.Dashboard.Layouts == nil {
+				s.Dashboard.Layouts = make(map[string][]settings.DashboardWidget)
+			}
+			s.Dashboard.Layouts[req.Cols] = list
+		} else {
+			s.Dashboard.Widgets = list
+		}
+
+		if err := s.Save(); err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to save settings")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	// Toggle layout mode between "auto" and "per-breakpoint"
+	r.PUT("/api/dashboard/layout-mode", func(c *gin.Context) {
+		var req struct {
+			Mode string `json:"mode"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+
+		if req.Mode != "auto" && req.Mode != "per-breakpoint" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be 'auto' or 'per-breakpoint'"})
+			return
+		}
+
+		s.Dashboard.LayoutMode = req.Mode
+
+		// When switching to per-breakpoint, bootstrap Layouts["5"] from current Widgets
+		if req.Mode == "per-breakpoint" && len(s.Dashboard.Widgets) > 0 {
+			if s.Dashboard.Layouts == nil {
+				s.Dashboard.Layouts = make(map[string][]settings.DashboardWidget)
+			}
+			if _, ok := s.Dashboard.Layouts["5"]; !ok {
+				cp := make([]settings.DashboardWidget, len(s.Dashboard.Widgets))
+				copy(cp, s.Dashboard.Widgets)
+				s.Dashboard.Layouts["5"] = cp
+			}
+		}
+
+		if req.Mode == "auto" {
+			s.Dashboard.Layouts = nil
+		}
+
+		if err := s.Save(); err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to save settings")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": req.Mode})
+	})
+
+	// Copy one breakpoint's layout to another
+	r.POST("/api/dashboard/layouts/:cols/copy-from/:sourceCols", func(c *gin.Context) {
+		cols := c.Param("cols")
+		sourceCols := c.Param("sourceCols")
+
+		if s.Dashboard.LayoutMode != "per-breakpoint" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "layout mode must be per-breakpoint"})
+			return
+		}
+
+		if s.Dashboard.Layouts == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no layouts configured"})
+			return
+		}
+
+		src, ok := s.Dashboard.Layouts[sourceCols]
+		if !ok {
+			// Fall back to default Widgets if source layout doesn't exist
+			src = s.Dashboard.Widgets
+		}
+
+		cp := make([]settings.DashboardWidget, len(src))
+		copy(cp, src)
+		s.Dashboard.Layouts[cols] = cp
 
 		if err := s.Save(); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to save settings")

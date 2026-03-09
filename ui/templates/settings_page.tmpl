@@ -27,8 +27,18 @@
 
             {{if eq .Section "general"}}
             <section class="detail-section">
-                <p class="section-label">general</p>
-                <p class="empty-state">No general settings yet.</p>
+                <p class="section-label">dashboard layout</p>
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                    <span style="font-size: 0.875rem; color: var(--text-2);">Layout mode</span>
+                    <div class="filters" style="margin-bottom: 0;" id="layout-mode-toggle">
+                        <a href="#" class="layout-mode-opt{{if or (eq .Settings.Dashboard.LayoutMode "") (eq .Settings.Dashboard.LayoutMode "auto")}} active{{end}}" data-mode="auto">auto</a>
+                        <a href="#" class="layout-mode-opt{{if eq .Settings.Dashboard.LayoutMode "per-breakpoint"}} active{{end}}" data-mode="per-breakpoint">per-breakpoint</a>
+                    </div>
+                </div>
+                <p style="font-size: 0.8125rem; color: var(--text-3); max-width: 480px;">
+                    <strong>Auto</strong> uses one widget list that reflows across screen sizes.
+                    <strong>Per-breakpoint</strong> lets you configure different widgets for desktop (5 col), tablet (3 col), and mobile (2 col).
+                </p>
             </section>
             {{end}}
 
@@ -82,6 +92,31 @@
 
 {{define "scripts"}}
     <script>
+    // Layout mode toggle
+    (function() {
+        const toggle = document.getElementById('layout-mode-toggle');
+        if (!toggle) return;
+        toggle.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const opt = e.target.closest('.layout-mode-opt');
+            if (!opt || opt.classList.contains('active')) return;
+            const mode = opt.dataset.mode;
+            try {
+                const res = await fetch('/api/dashboard/layout-mode', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode })
+                });
+                if (res.ok) {
+                    toggle.querySelectorAll('.layout-mode-opt').forEach(a => a.classList.remove('active'));
+                    opt.classList.add('active');
+                }
+            } catch (err) {
+                console.error('Failed to update layout mode:', err);
+            }
+        });
+    })();
+
     async function removeWatched(btn, entry) {
         btn.disabled = true;
         try {

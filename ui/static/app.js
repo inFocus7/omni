@@ -258,6 +258,7 @@
   initSortables();
   initWidgetGrid();
   initWidgetPickerConfirm();
+  initBreakpointSwitching();
 
   // ── Widget grid: edit mode, drag-and-drop, controls ────
   function initWidgetGrid() {
@@ -272,12 +273,17 @@
       emptyAddBtn.addEventListener('click', () => openPicker());
     }
 
+    const gridToggleBtn = document.getElementById('edit-grid-toggle');
+    const editToolbar = document.getElementById('edit-toolbar');
+
     if (!grid || !editBtn) return;
 
     let editing = false;
     let sortable = null;
     let dirty = false;
     let widgetDefs = null;
+    let gridOverlay = false;
+    let overlayEl = null;
     if (typeof Sortable !== 'undefined') {
       sortable = Sortable.create(grid, {
         animation: 200,
@@ -295,26 +301,194 @@
       });
     }
 
+    const isPerBreakpoint = grid.dataset.layoutMode === 'per-breakpoint';
+    const bpTabs = document.getElementById('breakpoint-tabs');
+    const copyBtn = document.getElementById('breakpoint-copy-btn');
+    let editCols = parseInt(grid.dataset.activeCols, 10) || 5;
+
     function enterEditMode() {
       editing = true;
       grid.classList.add('widget-grid--editing');
       editBtn.style.display = 'none';
+      if (editToolbar) editToolbar.classList.add('visible');
       if (saveBtn) saveBtn.style.display = '';
       if (cancelBtn) cancelBtn.style.display = '';
       if (addCard) addCard.style.display = '';
       if (sortable) sortable.option('disabled', false);
       dirty = false;
       populateSizePickers();
+
+      // Show breakpoint tabs in per-breakpoint mode
+      if (isPerBreakpoint && bpTabs) {
+        bpTabs.classList.add('visible');
+        // Auto-select the breakpoint matching the current viewport
+        const vw = window.innerWidth;
+        if (vw <= 479) editCols = 2;
+        else if (vw <= 767) editCols = 3;
+        else editCols = 5;
+        bpTabs.querySelectorAll('.breakpoint-tab').forEach(t =>
+          t.classList.toggle('active', parseInt(t.dataset.cols, 10) === editCols)
+        );
+        applyGridConstraint(editCols);
+
+        // Fetch the correct breakpoint's widgets if not already showing
+        const currentDataCols = parseInt(grid.dataset.activeCols, 10) || 5;
+        if (currentDataCols !== editCols) {
+          const activeTab = bpTabs.querySelector(`.breakpoint-tab[data-cols="${editCols}"]`);
+          if (activeTab) activeTab.click();
+        }
+      }
     }
 
     function exitEditMode() {
       editing = false;
       grid.classList.remove('widget-grid--editing');
+      grid.classList.remove('widget-grid--constrained');
+      grid.classList.remove('widget-grid--show-grid');
+      removeGridOverlay();
+      grid.removeAttribute('data-sim-cols');
+      grid.style.gridTemplateColumns = '';
+      gridOverlay = false;
       editBtn.style.display = '';
+      if (editToolbar) editToolbar.classList.remove('visible');
+      if (gridToggleBtn) gridToggleBtn.classList.remove('active');
       if (saveBtn) saveBtn.style.display = 'none';
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (addCard) addCard.style.display = 'none';
       if (sortable) sortable.option('disabled', true);
+      if (bpTabs) bpTabs.classList.remove('visible');
+    }
+
+    function applyGridConstraint(cols) {
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      if (cols < 5) {
+        grid.classList.add('widget-grid--constrained');
+        grid.dataset.simCols = cols;
+      } else {
+        grid.classList.remove('widget-grid--constrained');
+        grid.removeAttribute('data-sim-cols');
+      }
+      // Rebuild overlay if it's showing so it matches new cols
+      if (gridOverlay) buildGridOverlay();
+    }
+
+    // Build / tear down the grid overlay with real dashed-border cells
+    function buildGridOverlay() {
+      removeGridOverlay();
+      overlayEl = document.createElement('div');
+      overlayEl.className = 'grid-overlay';
+      // Match the grid's current column setting
+      const cols = parseInt(grid.style.gridTemplateColumns?.match(/repeat\((\d+)/)?.[1] || '5', 10);
+      overlayEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      // Fill enough rows to cover the grid — count widget rows + a few extra
+      const rows = Math.max(4, Math.ceil(grid.scrollHeight / 130));
+      const cellCount = cols * rows;
+      for (let i = 0; i < cellCount; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'grid-overlay-cell';
+        overlayEl.appendChild(cell);
+      }
+      grid.prepend(overlayEl);
+    }
+
+    function removeGridOverlay() {
+      if (overlayEl) {
+        overlayEl.remove();
+        overlayEl = null;
+      }
+    }
+
+    // Grid overlay toggle
+    if (gridToggleBtn) {
+      gridToggleBtn.addEventListener('click', () => {
+        gridOverlay = !gridOverlay;
+        if (gridOverlay) {
+          grid.classList.add('widget-grid--show-grid');
+          buildGridOverlay();
+        } else {
+          grid.classList.remove('widget-grid--show-grid');
+          removeGridOverlay();
+        }
+        gridToggleBtn.classList.toggle('active', gridOverlay);
+      });
+    }
+
+    // Fetch and replace grid contents for a given breakpoint
+    function loadBreakpointGrid(cols) {
+      const filter = getActiveFilter();
+      return fetch(`/?cols=${cols}&filter=${encodeURIComponent(filter)}`)
+        .then(r => r.text())
+        .then(html => {
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const newGrid = doc.getElementById('widget-grid');
+          if (!newGrid) return;
+          // Replace grid inner content (widgets), keep add card
+          const currentWidgets = grid.querySelectorAll('.widget:not(.widget-add)');
+          currentWidgets.forEach(w => w.remove());
+          const ac = document.getElementById('widget-add-card');
+          newGrid.querySelectorAll('.widget:not(.widget-add)').forEach(w => {
+            if (ac) grid.insertBefore(w, ac);
+            else grid.appendChild(w);
+          });
+          // Re-init sortable items
+          if (sortable) sortable.option('disabled', false);
+          populateSizePickers();
+          applyGridConstraint(cols);
+        })
+        .catch(err => console.error('Failed to load breakpoint layout:', err));
+    }
+
+    // Breakpoint tab click — switch to that breakpoint's layout
+    if (bpTabs) {
+      bpTabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('.breakpoint-tab');
+        if (!tab || !editing) return;
+        const cols = parseInt(tab.dataset.cols, 10);
+        if (!cols || cols === editCols) return;
+
+        editCols = cols;
+        bpTabs.querySelectorAll('.breakpoint-tab').forEach(t => t.classList.toggle('active', t === tab));
+        applyGridConstraint(cols);
+        loadBreakpointGrid(cols);
+      });
+    }
+
+    // Copy-from popover menu
+    const copyMenu = document.getElementById('breakpoint-copy-menu');
+    if (copyBtn && copyMenu) {
+      const BP_LABELS = { 5: 'Desktop (5)', 3: 'Tablet (3)', 2: 'Mobile (2)' };
+
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!editing || !isPerBreakpoint) return;
+
+        const otherCols = [5, 3, 2].filter(c => c !== editCols);
+        copyMenu.innerHTML = otherCols.map(c =>
+          `<button class="breakpoint-copy-option" data-source-cols="${c}">${BP_LABELS[c]}</button>`
+        ).join('');
+        copyMenu.classList.toggle('open');
+      });
+
+      copyMenu.addEventListener('click', (e) => {
+        const opt = e.target.closest('.breakpoint-copy-option');
+        if (!opt) return;
+        const sourceCols = parseInt(opt.dataset.sourceCols, 10);
+        copyMenu.classList.remove('open');
+
+        fetch(`/api/dashboard/layouts/${editCols}/copy-from/${sourceCols}`, { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok) {
+              loadBreakpointGrid(editCols);
+            }
+          })
+          .catch(err => console.error('Failed to copy layout:', err));
+      });
+
+      // Close menu when clicking elsewhere
+      document.addEventListener('click', () => {
+        copyMenu.classList.remove('open');
+      });
     }
 
     editBtn.addEventListener('click', enterEditMode);
@@ -324,10 +498,14 @@
       saveBtn.addEventListener('click', () => {
         const widgets = [...grid.querySelectorAll('.widget[data-widget-id]')]
           .map(el => ({ id: el.dataset.widgetId, size_name: el.dataset.size }));
+        const body = { widgets };
+        if (isPerBreakpoint) {
+          body.cols = String(editCols);
+        }
         fetch('/api/dashboard/widgets', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ widgets })
+          body: JSON.stringify(body)
         })
         .then(() => window.location.reload())
         .catch(err => console.error('Failed to save dashboard:', err));
@@ -680,6 +858,70 @@
           .then(r => r.json())
           .then(data => addWidget(data.html))
           .catch(err => console.error('Failed to fetch widget preview:', err));
+      }
+    });
+  }
+
+  // ── Breakpoint switching (per-breakpoint mode, runtime) ──
+  function initBreakpointSwitching() {
+    const grid = document.getElementById('widget-grid');
+    if (!grid || grid.dataset.layoutMode !== 'per-breakpoint') return;
+
+    const BREAKPOINTS = [
+      { cols: 5, query: '(min-width: 768px)' },
+      { cols: 3, query: '(min-width: 480px) and (max-width: 767px)' },
+      { cols: 2, query: '(max-width: 479px)' },
+    ];
+
+    // Cache fetched HTML per breakpoint
+    const cache = {};
+    let currentCols = parseInt(grid.dataset.activeCols, 10) || 5;
+
+    function switchBreakpoint(cols) {
+      if (cols === currentCols) return;
+      // Don't switch while editing
+      if (grid.classList.contains('widget-grid--editing')) return;
+
+      currentCols = cols;
+      const filter = getActiveFilter();
+      const cacheKey = `${cols}:${filter}`;
+
+      if (cache[cacheKey]) {
+        applyBreakpointHTML(cache[cacheKey], cols);
+        return;
+      }
+
+      fetch(`/?cols=${cols}&filter=${encodeURIComponent(filter)}`)
+        .then(r => r.text())
+        .then(html => {
+          cache[cacheKey] = html;
+          // Check we're still on this breakpoint
+          if (currentCols === cols) {
+            applyBreakpointHTML(html, cols);
+          }
+        })
+        .catch(err => console.error('Failed to load breakpoint:', err));
+    }
+
+    function applyBreakpointHTML(html, cols) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const newGrid = doc.getElementById('widget-grid');
+      if (!newGrid) return;
+
+      // Replace grid contents
+      grid.innerHTML = newGrid.innerHTML;
+      grid.dataset.activeCols = cols;
+    }
+
+    BREAKPOINTS.forEach(bp => {
+      const mql = window.matchMedia(bp.query);
+      const handler = (e) => {
+        if (e.matches) switchBreakpoint(bp.cols);
+      };
+      mql.addEventListener('change', handler);
+      // Check initial state
+      if (mql.matches && bp.cols !== currentCols) {
+        switchBreakpoint(bp.cols);
       }
     });
   }

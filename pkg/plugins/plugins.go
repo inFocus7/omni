@@ -62,6 +62,8 @@ type DashboardData struct {
 	ActiveFilter string
 	Widgets      []RenderedWidget
 	EditMode     bool
+	LayoutMode   string
+	ActiveCols   int
 }
 
 type PluginManager struct {
@@ -139,9 +141,9 @@ func formatInt(n int) string {
 	return b.String()
 }
 
-// FetchDashboardWidgets fetches and pre-renders pinned widgets from settings.
-func (pm *PluginManager) FetchDashboardWidgets(filter string) ([]RenderedWidget, error) {
-	pinned := pm.settings.Dashboard.Widgets
+// FetchDashboardWidgets fetches and pre-renders pinned widgets for the given column count.
+func (pm *PluginManager) FetchDashboardWidgets(filter string, cols int) ([]RenderedWidget, error) {
+	pinned := pm.settings.Dashboard.WidgetsForCols(cols)
 	if len(pinned) == 0 {
 		return nil, nil
 	}

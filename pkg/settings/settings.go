@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -17,7 +18,21 @@ type GitHubSettings struct {
 }
 
 type DashboardSettings struct {
-	Widgets []DashboardWidget `json:"widgets"`
+	LayoutMode string                       `json:"layout_mode,omitempty"` // "" or "auto" (default) | "per-breakpoint"
+	Widgets    []DashboardWidget            `json:"widgets"`               // auto mode (backwards compat)
+	Layouts    map[string][]DashboardWidget `json:"layouts,omitempty"`     // keys: "5", "3", "2"
+}
+
+// WidgetsForCols returns the widget list for the given column count.
+// In auto mode (or missing layout), it falls back to the default Widgets list.
+func (d *DashboardSettings) WidgetsForCols(cols int) []DashboardWidget {
+	if d.LayoutMode != "per-breakpoint" || d.Layouts == nil {
+		return d.Widgets
+	}
+	if ws, ok := d.Layouts[strconv.Itoa(cols)]; ok {
+		return ws
+	}
+	return d.Widgets // fallback
 }
 
 type DashboardWidget struct {
