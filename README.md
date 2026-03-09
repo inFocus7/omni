@@ -8,6 +8,10 @@
 
 <p align="center">A developer dashboard. Primarily made for myself to track my contributions.</p>
 
+<p align="center">
+  <img alt="GIF Demo of OMNI" src="assets/omni-record.gif" width="800" />
+</p>
+
 ## Running
 
 Requires Go 1.26+.
