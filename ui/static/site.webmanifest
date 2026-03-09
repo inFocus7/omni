@@ -1,5 +1,5 @@
 {
-  "name": "OMNI",
+  "name": "Omni Dashboard",
   "short_name": "OMNI",
   "icons": [
     {
@@ -15,7 +15,7 @@
       "purpose": "maskable"
     }
   ],
-  "theme_color": "#f1f1f0",
-  "background_color": "#0e0e10",
+  "theme_color": "#EDEDEF",
+  "background_color": "#EDEDEF",
   "display": "standalone"
 }
