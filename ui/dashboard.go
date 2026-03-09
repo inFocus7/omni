@@ -102,24 +102,36 @@ func funcMap() template.FuncMap {
 	}
 }
 
-// Pages loads all templates (dashboard + plugin pages) into a shared set with helper functions.
-func Pages() (*template.Template, error) {
-	t, err := template.New("root").Funcs(funcMap()).ParseGlob(filepath.Join(templatesDir, "*.tmpl"))
-	if err != nil {
-		return nil, err
-	}
+// Pages loads all page templates, each combined with the shared base layout and plugin sub-templates.
+func Pages() (map[string]*template.Template, error) {
+	base := filepath.Join(templatesDir, "base.tmpl")
 
 	pluginMatches, err := filepath.Glob(filepath.Join(templatesDir, "plugins", "*.tmpl"))
 	if err != nil {
 		return nil, err
 	}
 
-	if len(pluginMatches) > 0 {
-		t, err = t.ParseFiles(pluginMatches...)
-		if err != nil {
-			return nil, err
-		}
+	pageMatches, err := filepath.Glob(filepath.Join(templatesDir, "*.tmpl"))
+	if err != nil {
+		return nil, err
 	}
 
-	return t, nil
+	pages := make(map[string]*template.Template, len(pageMatches))
+	for _, pf := range pageMatches {
+		name := filepath.Base(pf)
+		if name == "base.tmpl" {
+			continue
+		}
+
+		files := []string{base, pf}
+		files = append(files, pluginMatches...)
+
+		t, err := template.New("").Funcs(funcMap()).ParseFiles(files...)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+		pages[name] = t
+	}
+
+	return pages, nil
 }

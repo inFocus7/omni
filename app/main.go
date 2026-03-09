@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -90,6 +91,15 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to load UI pages")
 	}
 
+	// render executes a page template by name using the shared base layout.
+	render := func(c *gin.Context, page string, data any) error {
+		t, ok := pages[page]
+		if !ok {
+			return fmt.Errorf("unknown page template: %s", page)
+		}
+		return t.ExecuteTemplate(c.Writer, "base.tmpl", data)
+	}
+
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(func(c *gin.Context) {
@@ -109,7 +119,7 @@ func main() {
 
 	r.NoRoute(func(c *gin.Context) {
 		c.Status(http.StatusNotFound)
-		if err := pages.ExecuteTemplate(c.Writer, "404.tmpl", nil); err != nil {
+		if err := render(c, "404.tmpl", nil); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render 404 template")
 		}
 	})
@@ -130,7 +140,7 @@ func main() {
 				ActiveFilter: filter,
 				Widgets:      rendered,
 			}
-			if err := pages.ExecuteTemplate(c.Writer, "dashboard.tmpl", data); err != nil {
+			if err := render(c, "dashboard.tmpl", data); err != nil {
 				respondError(c, logger, http.StatusInternalServerError, err, "failed to render dashboard template")
 			}
 			return
@@ -140,13 +150,13 @@ func main() {
 		data := &plugins.DashboardData{
 			ActiveFilter: filter,
 		}
-		if err := pages.ExecuteTemplate(c.Writer, "dashboard.tmpl", data); err != nil {
+		if err := render(c, "dashboard.tmpl", data); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render dashboard template")
 		}
 	})
 
 	r.GET("/plugins", func(c *gin.Context) {
-		if err := pages.ExecuteTemplate(c.Writer, "plugins_page.tmpl", nil); err != nil {
+		if err := render(c, "plugins_page.tmpl", nil); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render plugins page template")
 			return
 		}
@@ -164,7 +174,7 @@ func main() {
 			return
 		}
 
-		if err := pages.ExecuteTemplate(c.Writer, "github_page.tmpl", data); err != nil {
+		if err := render(c, "github_page.tmpl", data); err != nil {
 			logger.Error().Err(err).Fields(map[string]interface{}{
 				"filter": filter,
 			}).Msg("failed to render GitHub page template")
@@ -181,7 +191,7 @@ func main() {
 			"Settings": s,
 		}
 
-		if err := pages.ExecuteTemplate(c.Writer, "settings_page.tmpl", data); err != nil {
+		if err := render(c, "settings_page.tmpl", data); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render settings page template")
 			return
 		}
