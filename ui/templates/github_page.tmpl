@@ -114,7 +114,7 @@
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
                             <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{avatarSize (.User.GetAvatarURL) 40}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}
@@ -177,7 +177,7 @@
                                 <a href="{{.HTMLURL}}" target="_blank" rel="noopener">{{.Title}}</a>
                             </td>
                             <td data-val="{{repoFromURL .RepositoryURL}}" data-tip="{{repoFromURL .RepositoryURL}}"><a class="subtle-link" href="{{repoHTMLURL .RepositoryURL}}" target="_blank" rel="noopener"><img class="icon" src="{{repoAvatarURL .RepositoryURL}}" alt="{{repoFromURL .RepositoryURL}} avatar" loading="lazy">{{repoFromURL .RepositoryURL}}</a></td>
-                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{.User.GetAvatarURL}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
+                            <td data-val="{{.User.Login}}" data-tip="{{.User.GetLogin}}"><a class="subtle-link" href="{{.User.GetHTMLURL}}" target="_blank" rel="noopener"><img class="icon icon-avatar" src="{{avatarSize (.User.GetAvatarURL) 40}}" alt="{{.User.GetLogin}} avatar" loading="lazy">{{.User.GetLogin}}</a></td>
                             <td data-val="{{ageUnix .CreatedAt}}">{{ageStr .CreatedAt}}</td>
                         </tr>
                         {{end}}

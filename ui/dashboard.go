@@ -2,9 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"html/template"
 	"path/filepath"
 	"strings"
-	"html/template"
 	"time"
 
 	"github.com/google/go-github/v83/github"
@@ -90,6 +90,15 @@ func funcMap() template.FuncMap {
 				return after
 			}
 			return s
+		},
+
+		// avatarSize appends a size parameter to a GitHub avatar URL.
+		// e.g. "https://avatars.githubusercontent.com/u/123?v=4" -> "...?v=4&s=40"
+		"avatarSize": func(url string, size int) string {
+			if strings.Contains(url, "?") {
+				return fmt.Sprintf("%s&s=%d", url, size)
+			}
+			return fmt.Sprintf("%s?s=%d", url, size)
 		},
 
 		// watchedType returns "org" or "repo" for a watched entry qualifier.
