@@ -1,6 +1,12 @@
-# OMNI
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/omni-white.png" />
+    <source media="(prefers-color-scheme: light)" srcset="assets/omni-black.png" />
+    <img alt="Omni" src="assets/omni-black.png" height="256" />
+  </picture>
+</p>
 
-A developer dashboard. Primarily made for myself to track my contribution ratio (PR:Review ratio).
+<p align="center">A developer dashboard. Primarily made for myself to track my contributions.</p>
 
 ## Running
 
