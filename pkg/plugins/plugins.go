@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/google/go-github/v83/github"
+	asciiplugin "github.com/infocus7/omni/pkg/plugins/ascii"
 	ghplugin "github.com/infocus7/omni/pkg/plugins/github"
 	"github.com/infocus7/omni/pkg/plugins/spacer"
 	"github.com/infocus7/omni/pkg/settings"
 	"github.com/infocus7/omni/pkg/widgets"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -85,6 +87,15 @@ func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager
 	reg.Register(ghplugin.NewReviewedWidget(ghClient))
 	reg.Register(ghplugin.NewRightNowWidget(ghClient))
 	reg.Register(spacer.New())
+
+	asciiWidgets, err := asciiplugin.LoadAll()
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load ascii animations")
+	} else {
+		for _, w := range asciiWidgets {
+			reg.Register(w)
+		}
+	}
 
 	return &PluginManager{
 		ctx:          ctx,

@@ -69,6 +69,11 @@
     spacer: {
       name: 'Layout',
       icon: '<svg class="plugin-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>'
+    },
+    ascii: {
+      name: 'ASCII',
+      icon: '<svg class="plugin-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h2l1 4 1-4h2M15 8v8M7 16h3"/></svg>',
+      badgeIcon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h2l1 4 1-4h2M15 8v8M7 16h3"/></svg>'
     }
   };
 
@@ -159,6 +164,8 @@
         main.querySelectorAll('.plugin, .widget').forEach(el => el.style.animation = 'none');
         initSortables();
         initWidgetGrid();
+        initBadges();
+        initAsciiAnimations();
 
         // Update URL without reload
         history.pushState(null, '', url);
@@ -182,6 +189,123 @@
 
   function initSortables() {
     document.querySelectorAll('table[data-sortable]').forEach(initSortable);
+  }
+
+  // ── Badge system ─────────────────────────────────────────
+  function initBadges() {
+    document.querySelectorAll('.widget-badge[data-plugin-id]').forEach(badge => {
+      const meta = PLUGIN_META[badge.dataset.pluginId];
+      if (meta?.badgeIcon) {
+        badge.title = meta.name;
+        badge.innerHTML = meta.badgeIcon;
+      } else {
+        badge.remove();
+      }
+    });
+  }
+
+  // ── ASCII animation controller ───────────────────────────
+  class AsciiAnimController {
+    constructor(canvas, frames, fps) {
+      this.canvas = canvas;
+      this.frames = frames;
+      this.fps = fps;
+      this.currentFrame = 0;
+      this.lastFrameTime = 0;
+      this.paused = false;
+      this.rafId = null;
+      this.indicator = canvas.querySelector('.ascii-pause-indicator');
+    }
+
+    start() {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      this.rafId = requestAnimationFrame(ts => this._tick(ts));
+    }
+
+    _tick(ts) {
+      if (!this.canvas.isConnected) return; // DOM removed (SPA nav)
+      this.rafId = requestAnimationFrame(ts => this._tick(ts));
+      if (this.paused) return;
+      if (ts - this.lastFrameTime < 1000 / this.fps) return;
+      this.lastFrameTime = ts;
+      this.frames[this.currentFrame].hidden = true;
+      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+      this.frames[this.currentFrame].hidden = false;
+    }
+
+    togglePause() {
+      this.paused = !this.paused;
+      this.canvas.classList.toggle('ascii-canvas--paused', this.paused);
+      if (this.indicator) this.indicator.hidden = !this.paused;
+    }
+  }
+
+  function initAsciiAnimations() {
+    document.querySelectorAll('.ascii-canvas').forEach(canvas => {
+      const fps = parseInt(canvas.dataset.asciiFps, 10) || 12;
+      const cols = parseInt(canvas.dataset.asciiCols, 10) || 40;
+      const rows = parseInt(canvas.dataset.asciiRows, 10) || 20;
+      const framesUrl = canvas.dataset.asciiFramesUrl;
+
+      // Font scaling via ResizeObserver
+      const CHAR_W = 0.6;
+      const CHAR_H = 1.0;
+      const resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          const maxFontW = width / (cols * CHAR_W);
+          const maxFontH = height / (rows * CHAR_H);
+          canvas.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
+        }
+      });
+      resizeObserver.observe(canvas);
+
+      function startController(frames) {
+        if (frames.length === 0) return;
+        const ctrl = new AsciiAnimController(canvas, frames, fps);
+        ctrl.start();
+        canvas.addEventListener('click', () => ctrl.togglePause());
+      }
+
+      if (framesUrl) {
+        // Lazy-load remaining frames once the widget enters the viewport.
+        const io = new IntersectionObserver((entries, observer) => {
+          if (!entries[0].isIntersecting) return;
+          observer.disconnect();
+          fetch(framesUrl)
+            .then(r => r.json())
+            .then(frameStrings => {
+              // Replace the inline frame 0 pre and append the rest.
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              const allPres = [];
+              frameStrings.forEach((html, i) => {
+                let pre;
+                if (i === 0 && inlinePre) {
+                  pre = inlinePre;
+                } else {
+                  pre = document.createElement('pre');
+                  pre.className = 'ascii-frame';
+                  pre.hidden = true;
+                  pre.innerHTML = html;
+                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
+                }
+                allPres.push(pre);
+              });
+              startController(allPres);
+            })
+            .catch(() => {
+              // Graceful degradation: show frame 0 statically.
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              if (inlinePre) inlinePre.hidden = false;
+            });
+        }, { threshold: 0 });
+        io.observe(canvas);
+      } else {
+        // Fallback: all frames already inline (e.g. older format).
+        const frames = Array.from(canvas.querySelectorAll('.ascii-frame'));
+        startController(frames);
+      }
+    });
   }
 
   // ── Tooltips for [data-tip] elements ────────────────────
@@ -259,6 +383,8 @@
   initWidgetGrid();
   initWidgetPickerConfirm();
   initBreakpointSwitching();
+  initBadges();
+  initAsciiAnimations();
 
   // ── Widget grid: edit mode, drag-and-drop, controls ────
   function initWidgetGrid() {
@@ -754,6 +880,7 @@
     let selectedPlugin = null;
     let selectedWidget = null;
     let selectedSize = null;
+    const multiInstance = new Set(['spacer', 'ascii']);
 
     overlay.classList.add('open');
     backBtn.style.display = 'none';
@@ -789,7 +916,7 @@
       // Group by plugin_id
       const groups = {};
       allWidgets.forEach(w => {
-        if (pinned.has(w.id)) return;
+        if (!multiInstance.has(w.plugin_id) && pinned.has(w.id)) return;
         if (!groups[w.plugin_id]) groups[w.plugin_id] = [];
         groups[w.plugin_id].push(w);
       });
@@ -893,7 +1020,7 @@
         const pinned = new Set(
           [...document.querySelectorAll('.widget[data-widget-id]')].map(el => el.dataset.widgetId)
         );
-        const pluginWidgets = allWidgets.filter(w => w.plugin_id === selectedPlugin && !pinned.has(w.id));
+        const pluginWidgets = allWidgets.filter(w => w.plugin_id === selectedPlugin && (multiInstance.has(w.plugin_id) || !pinned.has(w.id)));
         renderWidgetList(pluginWidgets);
         selectedWidget = null;
         selectedSize = null;
@@ -931,9 +1058,9 @@
       const sizeOpt = selectedWidget.sizes.find(s => s.name === selectedSize);
       if (!sizeOpt) return;
 
-      const isSpacer = selectedWidget.plugin_id === 'spacer';
-      // Spacers get unique instance IDs so multiple can coexist
-      const widgetId = isSpacer ? selectedWidget.id + ':' + Date.now() : selectedWidget.id;
+      // Spacers and ASCII widgets get unique instance IDs so multiple can coexist
+      const needsInstance = ['spacer', 'ascii'].includes(selectedWidget.plugin_id);
+      const widgetId = needsInstance ? selectedWidget.id + ':' + Date.now() : selectedWidget.id;
 
       const grid = document.getElementById('widget-grid');
       if (!grid) {
@@ -956,6 +1083,7 @@
         const meta = PLUGIN_META[pid];
 
         const div = document.createElement('div');
+        const isSpacer = selectedWidget.plugin_id === 'spacer';
         div.className = 'widget' + (isSpacer ? ' widget-spacer' : '');
         div.dataset.widgetId = widgetId;
         div.dataset.size = selectedSize;
@@ -983,7 +1111,7 @@
         closeWidgetPicker();
       };
 
-      if (isSpacer) {
+      if (selectedWidget.plugin_id === 'spacer') {
         addWidget('');
       } else {
         fetch(`/api/widgets/${encodeURIComponent(selectedWidget.id)}/preview?size=${encodeURIComponent(selectedSize)}&filter=${encodeURIComponent(filter)}`)
@@ -1043,6 +1171,10 @@
       // Replace grid contents
       grid.innerHTML = newGrid.innerHTML;
       grid.dataset.activeCols = cols;
+
+      // Re-initialize ASCII animations for the new DOM nodes.
+      // Old controllers self-stop via the !canvas.isConnected check in _tick.
+      initAsciiAnimations();
     }
 
     BREAKPOINTS.forEach(bp => {

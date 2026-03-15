@@ -7,6 +7,8 @@ RUN go mod download
 
 COPY . .
 
+RUN go install github.com/evanw/esbuild/cmd/esbuild@latest && \
+    esbuild ui/static/app.js --minify --outfile=ui/static/app.min.js
 RUN CGO_ENABLED=0 go build -o /omni ./app/main.go
 
 FROM gcr.io/distroless/static-debian12

@@ -5,9 +5,10 @@ tmp_dir = "tmp"
 
 [build]
   bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main ./app"
+  cmd = "esbuild ui/static/app.js --minify --outfile=ui/static/app.min.js && go build -o ./tmp/main ./app"
   delay = 500
   exclude_dir = ["tmp", "vendor", "testdata", "node_modules"]
+  exclude_file = ["ui/static/app.min.js"]
   exclude_regex = ["_test\\.go"]
   include_dir = ["app", "internal", "pkg", "ui"]
   include_ext = ["go", "tmpl", "html", "css", "js"]

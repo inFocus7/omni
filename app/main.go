@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -29,16 +30,6 @@ func init() {
 func respondError(c *gin.Context, logger zerolog.Logger, status int, err error, msg string) {
 	logger.Error().Err(err).Msg(msg)
 	c.JSON(status, gin.H{"error": err.Error()})
-}
-
-// containsString checks if a string slice contains a given string.
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // hasWidgetWithID checks if a widget with the given ID exists in the dashboard widgets.
@@ -86,6 +77,25 @@ func main() {
 	pm, err := plugins.NewPluginManager(ctx, s)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to initialize plugin manager")
+	}
+
+	// Pre-build map of animation name → serialized frames JSON for the frames API.
+	type asciiWidget interface {
+		FramesJSON() []byte
+		AnimationName() string
+	}
+	asciiFrames := map[string][]byte{}
+	for _, def := range pm.Registry.All() {
+		if def.PluginID != "ascii" {
+			continue
+		}
+		w, ok := pm.Registry.Get(def.ID)
+		if !ok {
+			continue
+		}
+		if aw, ok := w.(asciiWidget); ok {
+			asciiFrames[aw.AnimationName()] = aw.FramesJSON()
+		}
 	}
 
 	pages, err := ui.Pages()
@@ -227,7 +237,7 @@ func main() {
 		}
 
 		// Deduplicate
-		if containsString(s.GitHub.Watched, entry) {
+		if slices.Contains(s.GitHub.Watched, entry) {
 			c.Redirect(http.StatusSeeOther, "/settings?section=plugins")
 			return
 		}
@@ -257,6 +267,18 @@ func main() {
 		}
 
 		c.Status(http.StatusNoContent)
+	})
+
+	// ── ASCII Frames API ───────────────────────────────────
+	r.GET("/api/ascii/:name/frames", func(c *gin.Context) {
+		name := c.Param("name")
+		data, ok := asciiFrames[name]
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
+			return
+		}
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Data(http.StatusOK, "application/json; charset=utf-8", data)
 	})
 
 	// ── Widget API ─────────────────────────────────────────

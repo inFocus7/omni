@@ -1,9 +1,12 @@
-.PHONY: run run-live docker-build security-scan check-deps
+.PHONY: run run-live docker-build security-scan check-deps minify-js
 
-run:
+minify-js:
+	esbuild ui/static/app.js --minify --outfile=ui/static/app.min.js
+
+run: minify-js
 	go run ./app/main.go
 
-run-live: check-deps
+run-live: check-deps minify-js
 	air
 
 docker-build:
