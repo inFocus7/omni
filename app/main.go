@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	apipkg "github.com/infocus7/omni/pkg/api"
+	asciiplugin "github.com/infocus7/omni/pkg/plugins/ascii"
 	"github.com/infocus7/omni/pkg/plugins"
 	"github.com/infocus7/omni/pkg/settings"
+	"github.com/infocus7/omni/pkg/store"
 	"github.com/infocus7/omni/ui"
 
 	"github.com/gin-contrib/gzip"
@@ -64,6 +70,7 @@ func filterWidgets(widgets []settings.DashboardWidget, excludeID string) []setti
 	return result
 }
 
+
 func main() {
 	ctx := context.Background()
 	logger := log.With().Str("component", "app").Logger()
@@ -74,30 +81,45 @@ func main() {
 		s = &settings.Settings{}
 	}
 
-	pm, err := plugins.NewPluginManager(ctx, s)
+	// ── Store construction ────────────────────────────────
+	embDataFS, err := asciiplugin.EmbeddedDataFS()
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to sub embedded data FS")
+	}
+
+	dbPath := "dashie.db"
+	if p := os.Getenv("OMNI_DB_PATH"); p != "" {
+		dbPath = p
+	} else if dir := os.Getenv("OMNI_DATA_DIR"); dir != "" {
+		dbPath = filepath.Join(dir, "dashie.db")
+	}
+
+	st, err := store.OpenSQLite(dbPath, embDataFS)
+	if err != nil {
+		logger.Fatal().Err(err).Str("path", dbPath).Msg("failed to open store")
+	}
+	defer st.Close()
+
+	// ── Plugin manager ────────────────────────────────────
+	pm, err := plugins.NewPluginManager(ctx, s, st)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to initialize plugin manager")
 	}
 
-	// Pre-build map of animation name → serialized frames JSON for the frames API.
+	// ── ASCII frame cache (sync.Map: name → []byte framesJSON) ───────
+	// Populated lazily on first read; invalidated eagerly on write/delete.
 	type asciiWidget interface {
 		FramesJSON() []byte
 		AnimationName() string
 	}
-	asciiFrames := map[string][]byte{}
-	for _, def := range pm.Registry.All() {
-		if def.PluginID != "ascii" {
-			continue
-		}
-		w, ok := pm.Registry.Get(def.ID)
-		if !ok {
-			continue
-		}
-		if aw, ok := w.(asciiWidget); ok {
-			asciiFrames[aw.AnimationName()] = aw.FramesJSON()
-		}
-	}
+	var asciiFrameCache sync.Map
 
+	// ── Watch goroutine ───────────────────────────────────
+	watcher := apipkg.NewWatcher(st, pm.Registry, &asciiFrameCache,
+		log.With().Str("component", "watcher").Logger())
+	watcher.Start(ctx)
+
+	// ── UI pages ──────────────────────────────────────────
 	pages, err := ui.Pages()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to load UI pages")
@@ -272,14 +294,35 @@ func main() {
 	// ── ASCII Frames API ───────────────────────────────────
 	r.GET("/api/ascii/:name/frames", func(c *gin.Context) {
 		name := c.Param("name")
-		data, ok := asciiFrames[name]
+
+		// Fast path: cache hit.
+		if data, ok := asciiFrameCache.Load(name); ok {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", data.([]byte))
+			return
+		}
+
+		// Cache miss: pull from the registry (already loaded at startup).
+		// Falls back to a DB read only for animations added after boot.
+		w, ok := pm.Registry.Get("ascii-" + name)
 		if !ok {
 			c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
 			return
 		}
+		aw, ok := w.(asciiWidget)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
+			return
+		}
+		framesJSON := aw.FramesJSON()
+		asciiFrameCache.Store(name, framesJSON)
 		c.Header("Cache-Control", "public, max-age=86400")
-		c.Data(http.StatusOK, "application/json; charset=utf-8", data)
+		c.Data(http.StatusOK, "application/json; charset=utf-8", framesJSON)
 	})
+
+	// ── ASCII CRUD API ─────────────────────────────────────
+	asciiAPI := apipkg.NewAsciiAPI(st, pm.Registry, &asciiFrameCache)
+	asciiAPI.RegisterRoutes(r)
 
 	// ── Widget API ─────────────────────────────────────────
 

@@ -282,8 +282,8 @@ func (w *RightNowWidget) Definition() widgets.WidgetDef {
 		Name:        "Right Now",
 		Description: "Open PRs, review debt, and assigned issues",
 		Sizes: []widgets.SizeOption{
-			{Name: "tall", W: 1, H: 2},
-			{Name: "wide", W: 3, H: 2},
+			{Name: "tall", W: 1, H: 3},
+			{Name: "wide", W: 3, H: 1},
 		},
 	}
 }

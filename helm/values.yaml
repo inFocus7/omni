@@ -1,0 +1,64 @@
+# Default values for omni.
+
+replicaCount: 1
+
+image:
+  repository: omni
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: omni.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# GitHub authentication.
+# Either provide a token directly (creates a Secret) or reference an existing one.
+github:
+  token: ""
+  existingSecret: ""      # name of an existing Secret with key GITHUB_TOKEN
+  existingSecretKey: "GITHUB_TOKEN"
+
+# Storage: SQLite database persisted on the PVC.
+# The database file is created at <persistence.mountPath>/dashie.db on first boot.
+# Built-in animations are seeded automatically when the database is empty.
+storage:
+  dbPath: ""  # override the full DB file path; defaults to <persistence.mountPath>/dashie.db
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /data
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources: {}
+  # limits:
+  #   cpu: 200m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 50m
+  #   memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}

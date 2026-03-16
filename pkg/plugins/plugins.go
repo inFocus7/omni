@@ -14,6 +14,7 @@ import (
 	ghplugin "github.com/infocus7/omni/pkg/plugins/github"
 	"github.com/infocus7/omni/pkg/plugins/spacer"
 	"github.com/infocus7/omni/pkg/settings"
+	"github.com/infocus7/omni/pkg/store"
 	"github.com/infocus7/omni/pkg/widgets"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -75,7 +76,7 @@ type PluginManager struct {
 	Registry     *widgets.Registry
 }
 
-func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager, error) {
+func NewPluginManager(ctx context.Context, s *settings.Settings, st store.Store) (*PluginManager, error) {
 	ghClient, err := ghplugin.NewClient()
 	if err != nil {
 		return nil, err
@@ -88,7 +89,7 @@ func NewPluginManager(ctx context.Context, s *settings.Settings) (*PluginManager
 	reg.Register(ghplugin.NewRightNowWidget(ghClient))
 	reg.Register(spacer.New())
 
-	asciiWidgets, err := asciiplugin.LoadAll()
+	asciiWidgets, err := asciiplugin.LoadFromStore(ctx, st)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load ascii animations")
 	} else {

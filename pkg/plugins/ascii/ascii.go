@@ -3,17 +3,15 @@ package ascii
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
-	"embed"
-
+	"github.com/infocus7/omni/pkg/store"
 	"github.com/infocus7/omni/pkg/widgets"
 )
 
@@ -25,25 +23,20 @@ var templateFS embed.FS
 
 var tmpl = template.Must(template.ParseFS(templateFS, "templates/*.tmpl"))
 
-// animationFile is the on-disk format of animation.json.
-type animationFile struct {
-	Name    string   `json:"name"`
-	Size    string   `json:"size"`
-	Cols    int      `json:"cols"`
-	Rows    int      `json:"rows"`
-	FPS     int      `json:"fps"`
-	Palette []string `json:"palette,omitempty"`
-	Frames  []string `json:"frames"`
+// EmbeddedDataFS returns the embedded animation data filesystem (the "data/" subtree).
+// Use this to construct a store.EmbeddedStore backed by the built-in animations.
+func EmbeddedDataFS() (fs.FS, error) {
+	return fs.Sub(dataFS, "data")
 }
 
-// Animation holds the parsed metadata and pre-rendered HTML frames.
+// Animation holds parsed metadata and pre-rendered HTML frames.
 type Animation struct {
 	Name    string
 	Size    string
 	Cols    int
 	Rows    int
 	FPS     int
-	Palette []string
+	Palette map[string]string // class name → CSS colour
 	Frames  []template.HTML
 }
 
@@ -101,17 +94,17 @@ func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, e
 	return template.HTML(buf.String()), nil
 }
 
-// buildPaletteCSS constructs a <style> block mapping .ac0, .ac1, … to colors.
+// buildPaletteCSS constructs a <style> block mapping each named class to its colour.
 // Returns template.HTML to bypass html/template's CSS-context sanitization,
 // which would otherwise replace unrecognized CSS values with "ZgotmplZ".
-func buildPaletteCSS(palette []string) template.HTML {
+func buildPaletteCSS(palette map[string]string) template.HTML {
 	if len(palette) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("<style>")
-	for i, color := range palette {
-		fmt.Fprintf(&b, ".ac%d{color:%s}", i, template.HTMLEscapeString(color))
+	for class, color := range palette {
+		fmt.Fprintf(&b, ".%s{color:%s}", template.HTMLEscapeString(class), template.HTMLEscapeString(color))
 	}
 	b.WriteString("</style>")
 	return template.HTML(b.String())
@@ -134,108 +127,51 @@ func parseSize(s string) widgets.SizeOption {
 	return widgets.SizeOption{Name: s, W: w, H: h}
 }
 
-// LoadAnimations walks the given fs.FS for directories containing animation.json,
-// loading all frames from the single packed file.
-func LoadAnimations(fsys fs.FS) ([]Animation, error) {
-	var anims []Animation
-
-	entries, err := fs.ReadDir(fsys, ".")
-	if err != nil {
-		return nil, err
+// NewWidgetFromVariant creates a Widget from a store.AnimationVariant.
+func NewWidgetFromVariant(v store.AnimationVariant) (*Widget, error) {
+	frames := make([]template.HTML, len(v.Frames))
+	for i, f := range v.Frames {
+		frames[i] = template.HTML(f) // pre-rendered, trusted
 	}
+	a := Animation{
+		Name:    v.Name,
+		Size:    v.Size,
+		Cols:    v.Cols,
+		Rows:    v.Rows,
+		FPS:     v.FPS,
+		Palette: v.Palette, // map[string]string
+		Frames:  frames,
+	}
+	return newWidget(a)
+}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
+// LoadFromStore loads all animations from s and returns them as Widgets.
+func LoadFromStore(ctx context.Context, s store.Store) ([]*Widget, error) {
+	metas, err := s.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list animations: %w", err)
+	}
+	var result []*Widget
+	for _, meta := range metas {
+		variants, err := s.Get(ctx, meta.Name)
+		if err != nil {
+			// Skip animations whose frame data isn't ready yet; the Watch
+			// goroutine will register them once ConfigMaps are available.
 			continue
 		}
-		anim, err := loadAnimation(fsys, entry.Name())
-		if err != nil {
-			return nil, fmt.Errorf("load animation %q: %w", entry.Name(), err)
-		}
-		anims = append(anims, anim)
-	}
-	return anims, nil
-}
-
-func loadAnimation(fsys fs.FS, dir string) (Animation, error) {
-	animPath := filepath.Join(dir, "meta.json")
-	data, err := fs.ReadFile(fsys, animPath)
-	if err != nil {
-		return Animation{}, fmt.Errorf("read meta.json (new format required): %w", err)
-	}
-
-	var af animationFile
-	if err := json.Unmarshal(data, &af); err != nil {
-		return Animation{}, fmt.Errorf("parse meta.json: %w", err)
-	}
-
-	frames := make([]template.HTML, len(af.Frames))
-	for i, s := range af.Frames {
-		frames[i] = template.HTML(s) // pre-rendered, trusted
-	}
-
-	return Animation{
-		Name:    af.Name,
-		Size:    af.Size,
-		Cols:    af.Cols,
-		Rows:    af.Rows,
-		FPS:     af.FPS,
-		Palette: af.Palette,
-		Frames:  frames,
-	}, nil
-}
-
-// LoadAll loads animations from the embedded data FS first, then from
-// $OMNI_DATA_DIR/ascii/ if set. External animations override built-ins by name.
-func LoadAll() ([]*Widget, error) {
-	byName := map[string]*Widget{}
-
-	// Load embedded built-ins from data/ subdirectory.
-	sub, err := fs.Sub(dataFS, "data")
-	if err != nil {
-		return nil, fmt.Errorf("sub embedded data: %w", err)
-	}
-	builtins, err := LoadAnimations(sub)
-	if err != nil {
-		return nil, fmt.Errorf("load built-in animations: %w", err)
-	}
-	for _, a := range builtins {
-		w, err := newWidget(a)
-		if err != nil {
-			return nil, err
-		}
-		byName[a.Name] = w
-	}
-
-	// Load external animations from $OMNI_DATA_DIR/ascii/ if set.
-	if dataDir := os.Getenv("OMNI_DATA_DIR"); dataDir != "" {
-		asciiDir := filepath.Join(dataDir, "ascii")
-		if info, err := os.Stat(asciiDir); err == nil && info.IsDir() {
-			extFS := os.DirFS(asciiDir)
-			externals, err := LoadAnimations(extFS)
+		for _, v := range variants {
+			w, err := NewWidgetFromVariant(v)
 			if err != nil {
-				return nil, fmt.Errorf("load external animations: %w", err)
+				continue
 			}
-			for _, a := range externals {
-				w, err := newWidget(a)
-				if err != nil {
-					return nil, err
-				}
-				byName[a.Name] = w
-			}
+			result = append(result, w)
 		}
-	}
-
-	result := make([]*Widget, 0, len(byName))
-	for _, w := range byName {
-		result = append(result, w)
 	}
 	return result, nil
 }
 
 // newWidget creates a Widget with pre-serialized framesJSON.
 func newWidget(a Animation) (*Widget, error) {
-	// Build []string for JSON serialization (raw HTML strings).
 	strs := make([]string, len(a.Frames))
 	for i, f := range a.Frames {
 		strs[i] = string(f)

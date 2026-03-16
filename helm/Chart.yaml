@@ -1,0 +1,13 @@
+apiVersion: v2
+name: omni
+description: A GitHub-focused developer dashboard with ASCII animations and runtime plugin management
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+keywords:
+  - dashboard
+  - github
+  - developer-tools
+home: https://github.com/infocus7/omni
+maintainers:
+  - name: infocus7

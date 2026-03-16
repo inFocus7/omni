@@ -9,7 +9,9 @@ COPY . .
 
 RUN go install github.com/evanw/esbuild/cmd/esbuild@latest && \
     esbuild ui/static/app.js --minify --outfile=ui/static/app.min.js
-RUN CGO_ENABLED=0 go build -o /omni ./app/main.go
+
+# Build the full app package (picks up main.go + k8s.go together)
+RUN CGO_ENABLED=0 go build -o /omni ./app
 
 FROM gcr.io/distroless/static-debian12
 

@@ -18,7 +18,7 @@ Requires Go 1.26+.
 
 ```sh
 export GITHUB_TOKEN="your_token_here"
-go run ./app
+make run
 ```
 
 The server starts on `:8080` by default.
@@ -35,14 +35,22 @@ Recommended setup:
 ### Docker
 
 ```sh
-make docker-build
-docker run -e GITHUB_TOKEN="your_token_here" -p 8080:8080 omni
+make docker-run GITHUB_TOKEN=your_token_here
 ```
+
+### Kubernetes (local via kind)
+
+```sh
+make kind-setup GITHUB_TOKEN=your_token_here
+make kind-forward   # in a second terminal
+```
+
+`kind-setup` creates a local cluster, builds the image, and installs the Helm chart. Re-running is safe — it upgrades the existing release.
 
 ### Development (live reload)
 
 ```sh
-make check-deps   # installs air + trivy
+make check-deps
 make run-live
 ```
 
@@ -52,122 +60,71 @@ Omni is built around a widget registry. Each plugin provides one or more widgets
 
 ### GitHub
 
-Tracks your GitHub activity. Widgets include:
+Tracks your GitHub activity across PRs, reviews, and issues. All widgets support time filters: `1d`, `7d`, `1mo`, `ytd`, `all`.
 
-| Widget | Description |
-|---|---|
-| `github-authored` | Count of PRs you authored |
-| `github-reviewed` | Count of PRs you reviewed |
-| `github-ratio` | Author-to-reviewer ratio with approval rate |
-| `github-rightnow` | Live summary — open PRs, review requests, assigned issues |
-
-All GitHub widgets support time filters: `1d`, `7d`, `1mo`, `ytd`, `all`.
-
-**Watching orgs and repos**
-
-Go to Settings → GitHub to add entries in GitHub Search qualifier format:
-
-```
-org:myorg           # all repos in an org
-repo:owner/repo     # a specific repo
-```
+Go to Settings → GitHub to watch orgs and repos using GitHub Search qualifier format (`org:myorg`, `repo:owner/repo`).
 
 ### ASCII
 
-Renders animated ASCII art as dashboard widgets. Built-in animations are embedded at startup. You can also load external animations at runtime by pointing `OMNI_DATA_DIR` to a directory:
-
-```sh
-export OMNI_DATA_DIR="/path/to/my/data"
-# Omni will load animations from $OMNI_DATA_DIR/ascii/
-```
-
-External animations override built-ins by name.
-
-Each animation lives in its own subdirectory and requires a `meta.json`:
-
-```json
-{
-  "name": "my-anim",
-  "size": "2x1",
-  "cols": 40,
-  "rows": 10,
-  "fps": 12,
-  "palette": ["#00ff00", "#ffffff"],
-  "frames": ["<span class=\"ac0\">frame 0 html</span>", "..."]
-}
-```
-
-| Field | Description |
-|---|---|
-| `name` | Unique animation name (used as widget ID `ascii-{name}`) |
-| `size` | Grid dimensions as `WxH`, e.g. `2x1` |
-| `cols` / `rows` | Character dimensions of the animation |
-| `fps` | Playback speed |
-| `palette` | Optional color palette — classes `.ac0`, `.ac1`, … map to these colors |
-| `frames` | Pre-rendered HTML strings, one per frame |
-
-Animation frames are served via `GET /api/ascii/{name}/frames` and played client-side.
+Renders animated ASCII art as dashboard widgets. Built-in animations are embedded at compile time. Additional animations can be added at runtime via the API or by dropping files into `$OMNI_DATA_DIR/ascii/` — no restart needed.
 
 ### Spacer
 
-An invisible layout widget for padding and alignment. Available in three sizes: `1x1`, `2x1`, `1x2`.
+An invisible layout widget for padding and alignment.
 
 ## Dashboard Layout
 
 The grid is **5 columns wide** with **130px rows**. It is responsive — at narrower viewports it collapses to 3 and then 2 columns.
 
-By default all breakpoints share one layout (**auto** mode). Switch to **per-breakpoint** mode in settings to configure 5-column, 3-column, and 2-column layouts independently.
+By default all breakpoints share one layout (**auto** mode). Switch to **per-breakpoint** mode in settings to configure each breakpoint independently.
 
 ## Project Structure
 
 ```
-app/                    # Entrypoint + HTTP routes
+app/                    # Entrypoint and HTTP routes
+helm/                   # Helm chart for Kubernetes deployment
+scripts/                # Developer scripts (kind cluster setup)
 pkg/
-  plugins/              # Plugin manager, dashboard rendering
+  api/                  # Runtime API handlers and store watcher
+  apis/                 # Kubernetes CRD type definitions
+  controller/           # Kubernetes controller
+  store/                # Storage interface and backends
+  plugins/              # Plugin implementations
     github/             # GitHub plugin
-      templates/        # Widget templates (embedded)
-      widgets.go        # Widget implementations
-      github.go         # API client
     ascii/              # ASCII animation plugin
-      data/             # Embedded animations (meta.json per subdirectory)
-      templates/        # Widget template
-      ascii.go          # Plugin implementation
     spacer/             # Spacer plugin
-  widgets/              # Widget interface + registry
-  settings/             # User settings (JSON on disk)
+  widgets/              # Widget interface and registry
+  settings/             # User settings persistence
 internal/
-  cache/                # TTL cache (30-minute default)
+  cache/                # TTL cache
 ui/
-  templates/            # Page templates (dashboard, settings, etc.)
-  static/               # CSS, JS, self-hosted fonts
+  templates/            # Page templates
+  static/               # CSS, JS, fonts
 ```
 
 ## Adding a Plugin
 
-Each plugin is a self-contained package under `pkg/plugins/`. A plugin provides widgets — small dashboard components the user can pin and arrange.
+Each plugin is a self-contained package under `pkg/plugins/`. A plugin provides widgets — components the user can pin and arrange on the dashboard.
 
 ### 1. Create the package
 
 ```
 pkg/plugins/yourplugin/
   templates/
-    summary_small.tmpl
-    summary_wide.tmpl
+    widget.tmpl
   widgets.go
 ```
 
 ### 2. Implement the Widget interface
 
-Every widget implements `widgets.Widget`:
-
 ```go
 type Widget interface {
-    Definition() WidgetDef    // Static metadata: ID, name, sizes
+    Definition() WidgetDef
     Render(ctx context.Context, filter string, sizeName string) (template.HTML, error)
 }
 ```
 
-Widgets own their templates. Embed them with `//go:embed` and parse once at package init:
+Embed and parse templates once at package init:
 
 ```go
 //go:embed templates/*.tmpl
@@ -176,30 +133,17 @@ var templateFS embed.FS
 var tmpl = template.Must(template.ParseFS(templateFS, "templates/*.tmpl"))
 ```
 
-`Render` fetches data and executes the template — the caller just gets back HTML. See `pkg/plugins/github/widgets.go` for working examples.
+See `pkg/plugins/github/widgets.go` for a complete example.
 
 ### 3. Register it
 
-In `pkg/plugins/plugins.go`, add your widget(s) to the registry inside `NewPluginManager`:
+In `pkg/plugins/plugins.go`, add to `NewPluginManager`:
 
 ```go
-reg.Register(yourplugin.NewSummaryWidget(client))
+reg.Register(yourplugin.NewWidget())
 ```
 
-That's it. The dashboard, widget picker, and preview API all work off the registry automatically.
-
-### Templates
-
-Widget templates are plain Go HTML templates. Wrap content in `.widget-fill` to fill the widget card:
-
-```html
-<div class="widget-fill">
-    <span class="stat-num">{{.Count}}</span>
-    <span class="stat-label">something</span>
-</div>
-```
-
-Each size gets its own template file. Name them however you want — there's no naming convention to follow. Just reference the right filename in your `Render` method.
+The dashboard, widget picker, and preview API all work off the registry automatically.
 
 ### Size Options
 
@@ -207,10 +151,8 @@ Sizes define how many grid columns/rows a widget spans:
 
 ```go
 Sizes: []widgets.SizeOption{
-    {Name: "small", W: 1, H: 1},   // 1 column, 1 row
-    {Name: "wide",  W: 2, H: 1},   // 2 columns, 1 row
-    {Name: "tall",  W: 1, H: 2},   // 1 column, 2 rows
+    {Name: "small", W: 1, H: 1},
+    {Name: "wide",  W: 2, H: 1},
+    {Name: "tall",  W: 1, H: 2},
 }
 ```
-
-The grid is 5 columns wide with 130px rows.

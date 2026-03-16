@@ -63,6 +63,13 @@ func (r *Registry) Get(id string) (Widget, bool) {
 	return nil, false
 }
 
+// Unregister removes a widget by ID from the registry.
+func (r *Registry) Unregister(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.widgets, id)
+}
+
 // All returns definitions of all registered widgets.
 func (r *Registry) All() []WidgetDef {
 	r.mu.RLock()
