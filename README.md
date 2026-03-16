@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<p align="center">A developer dashboard. Primarily made for myself to track my contributions.</p>
+<p align="center">A personal developer dashboard for tracking contributions and team activity.</p>
 
 <p align="center">
   <img alt="GIF Demo of OMNI" src="assets/omni-record.gif" width="800" />
@@ -32,6 +32,92 @@ Recommended setup:
 - 30-day expiration
 - Scopes: **repo**, **read:user**
 
+### Docker
+
+```sh
+make docker-build
+docker run -e GITHUB_TOKEN="your_token_here" -p 8080:8080 omni
+```
+
+### Development (live reload)
+
+```sh
+make check-deps   # installs air + trivy
+make run-live
+```
+
+## Plugins
+
+Omni is built around a widget registry. Each plugin provides one or more widgets that users can pin, resize, and arrange on their dashboard.
+
+### GitHub
+
+Tracks your GitHub activity. Widgets include:
+
+| Widget | Description |
+|---|---|
+| `github-authored` | Count of PRs you authored |
+| `github-reviewed` | Count of PRs you reviewed |
+| `github-ratio` | Author-to-reviewer ratio with approval rate |
+| `github-rightnow` | Live summary — open PRs, review requests, assigned issues |
+
+All GitHub widgets support time filters: `1d`, `7d`, `1mo`, `ytd`, `all`.
+
+**Watching orgs and repos**
+
+Go to Settings → GitHub to add entries in GitHub Search qualifier format:
+
+```
+org:myorg           # all repos in an org
+repo:owner/repo     # a specific repo
+```
+
+### ASCII
+
+Renders animated ASCII art as dashboard widgets. Built-in animations are embedded at startup. You can also load external animations at runtime by pointing `OMNI_DATA_DIR` to a directory:
+
+```sh
+export OMNI_DATA_DIR="/path/to/my/data"
+# Omni will load animations from $OMNI_DATA_DIR/ascii/
+```
+
+External animations override built-ins by name.
+
+Each animation lives in its own subdirectory and requires a `meta.json`:
+
+```json
+{
+  "name": "my-anim",
+  "size": "2x1",
+  "cols": 40,
+  "rows": 10,
+  "fps": 12,
+  "palette": ["#00ff00", "#ffffff"],
+  "frames": ["<span class=\"ac0\">frame 0 html</span>", "..."]
+}
+```
+
+| Field | Description |
+|---|---|
+| `name` | Unique animation name (used as widget ID `ascii-{name}`) |
+| `size` | Grid dimensions as `WxH`, e.g. `2x1` |
+| `cols` / `rows` | Character dimensions of the animation |
+| `fps` | Playback speed |
+| `palette` | Optional color palette — classes `.ac0`, `.ac1`, … map to these colors |
+| `frames` | Pre-rendered HTML strings, one per frame |
+
+Animation frames are served via `GET /api/ascii/{name}/frames` and played client-side.
+
+### Spacer
+
+An invisible layout widget for padding and alignment. Available in three sizes: `1x1`, `2x1`, `1x2`.
+
+## Dashboard Layout
+
+The grid is **5 columns wide** with **130px rows**. It is responsive — at narrower viewports it collapses to 3 and then 2 columns.
+
+By default all breakpoints share one layout (**auto** mode). Switch to **per-breakpoint** mode in settings to configure 5-column, 3-column, and 2-column layouts independently.
+
 ## Project Structure
 
 ```
@@ -42,11 +128,18 @@ pkg/
       templates/        # Widget templates (embedded)
       widgets.go        # Widget implementations
       github.go         # API client
+    ascii/              # ASCII animation plugin
+      data/             # Embedded animations (meta.json per subdirectory)
+      templates/        # Widget template
+      ascii.go          # Plugin implementation
+    spacer/             # Spacer plugin
   widgets/              # Widget interface + registry
   settings/             # User settings (JSON on disk)
+internal/
+  cache/                # TTL cache (30-minute default)
 ui/
   templates/            # Page templates (dashboard, settings, etc.)
-  static/               # CSS + JS
+  static/               # CSS, JS, self-hosted fonts
 ```
 
 ## Adding a Plugin
