@@ -5,54 +5,44 @@ import (
 	"fmt"
 )
 
-// metaJSON is the on-disk JSON format for a single animation variant.
-type metaJSON struct {
-	Name    string            `json:"name"`
-	Size    string            `json:"size"`
-	Cols    int               `json:"cols"`
-	Rows    int               `json:"rows"`
-	FPS     int               `json:"fps"`
-	Palette map[string]string `json:"palette,omitempty"` // class name → CSS colour
-	Frames  []string          `json:"frames"`
+// PackMeta is the parsed content of a pack-level meta.json.
+// It describes an animation and lists its size variants with references to
+// separate frames files rather than inlining the frame data.
+type PackMeta struct {
+	Name     string            `json:"name"`
+	Palette  map[string]string `json:"palette,omitempty"`
+	Variants []VariantFileMeta `json:"variants"`
 }
 
-// ParseMetaJSON parses a meta.json byte slice into an AnimationVariant.
-func ParseMetaJSON(data []byte) (AnimationVariant, error) {
-	var m metaJSON
+// VariantFileMeta describes one size variant and where to find its frames.
+// FramesFile is a filename relative to the animation's directory.
+type VariantFileMeta struct {
+	Size       string `json:"size"`
+	Cols       int    `json:"cols"`
+	Rows       int    `json:"rows"`
+	FPS        int    `json:"fps"`
+	FramesFile string `json:"frames_file"`
+}
+
+// ParseMetaJSON parses a meta.json byte slice into a PackMeta.
+func ParseMetaJSON(data []byte) (PackMeta, error) {
+	var m PackMeta
 	if err := json.Unmarshal(data, &m); err != nil {
-		return AnimationVariant{}, fmt.Errorf("parse meta.json: %w", err)
+		return PackMeta{}, fmt.Errorf("parse meta.json: %w", err)
 	}
 	if m.Name == "" {
-		return AnimationVariant{}, fmt.Errorf("meta.json: missing name field")
+		return PackMeta{}, fmt.Errorf("meta.json: missing name field")
 	}
-	if m.Size == "" {
-		m.Size = "1x1"
+	if len(m.Variants) == 0 {
+		return PackMeta{}, fmt.Errorf("meta.json: no variants defined")
 	}
-	return AnimationVariant{
-		Name:    m.Name,
-		Size:    m.Size,
-		Cols:    m.Cols,
-		Rows:    m.Rows,
-		FPS:     m.FPS,
-		Palette: m.Palette,
-		Frames:  m.Frames,
-	}, nil
-}
-
-// MarshalVariant serialises an AnimationVariant to meta.json bytes.
-func MarshalVariant(v AnimationVariant) ([]byte, error) {
-	m := metaJSON{
-		Name:    v.Name,
-		Size:    v.Size,
-		Cols:    v.Cols,
-		Rows:    v.Rows,
-		FPS:     v.FPS,
-		Palette: v.Palette,
-		Frames:  v.Frames,
+	for i, v := range m.Variants {
+		if v.Size == "" {
+			return PackMeta{}, fmt.Errorf("meta.json: variant %d missing size", i)
+		}
+		if v.FramesFile == "" {
+			return PackMeta{}, fmt.Errorf("meta.json: variant %q missing frames_file", v.Size)
+		}
 	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("marshal meta.json: %w", err)
-	}
-	return data, nil
+	return m, nil
 }

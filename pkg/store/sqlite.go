@@ -145,16 +145,36 @@ func (s *SQLiteStore) seedIfEmpty(fsys fs.FS) error {
 		if !e.IsDir() {
 			continue
 		}
-		data, err := fs.ReadFile(fsys, filepath.Join(e.Name(), "meta.json"))
+		dir := e.Name()
+		data, err := fs.ReadFile(fsys, filepath.Join(dir, "meta.json"))
 		if err != nil {
 			continue
 		}
-		v, err := ParseMetaJSON(data)
+		pack, err := ParseMetaJSON(data)
 		if err != nil {
 			continue
 		}
-		if err := s.Put(ctx, v); err != nil {
-			return fmt.Errorf("seed %q: %w", v.Name, err)
+		for _, vs := range pack.Variants {
+			framesData, err := fs.ReadFile(fsys, filepath.Join(dir, vs.FramesFile))
+			if err != nil {
+				return fmt.Errorf("seed %q: read frames %q: %w", pack.Name, vs.FramesFile, err)
+			}
+			var frames []string
+			if err := json.Unmarshal(framesData, &frames); err != nil {
+				return fmt.Errorf("seed %q: parse frames %q: %w", pack.Name, vs.FramesFile, err)
+			}
+			v := AnimationVariant{
+				Name:    pack.Name,
+				Size:    vs.Size,
+				Cols:    vs.Cols,
+				Rows:    vs.Rows,
+				FPS:     vs.FPS,
+				Palette: pack.Palette,
+				Frames:  frames,
+			}
+			if err := s.Put(ctx, v); err != nil {
+				return fmt.Errorf("seed %q/%q: %w", pack.Name, vs.Size, err)
+			}
 		}
 	}
 	return nil

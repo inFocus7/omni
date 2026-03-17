@@ -43,6 +43,11 @@ kind-forward:
 kind-down:
 	kind delete cluster --name $(CLUSTER_NAME)
 
+# ── Database ──────────────────────────────────────────────────────────────────
+
+POD := $(shell kubectl get pod -n $(OMNI_NAMESPACE) -l app.kubernetes.io/name=omni -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+POD_DB_PATH ?= /data/dashie.db
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 helm-lint:
