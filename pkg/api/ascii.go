@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -17,7 +17,7 @@ import (
 type AsciiAPI struct {
 	store    store.Store
 	registry *widgets.Registry
-	cache    *sync.Map // map[string][]byte — animation name → framesJSON
+	cache    *sync.Map // map["name/size"][]byte — gzip-compressed frames blob
 }
 
 // NewAsciiAPI creates an AsciiAPI.
@@ -33,6 +33,13 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 	r.PUT("/api/ascii/animations/:name", h.Update)
 	r.DELETE("/api/ascii/animations/:name", h.Delete)
 	r.POST("/api/ascii/animations/preview", h.Preview)
+}
+
+// animationRequest is the HTTP request body for Create and Update.
+// Frames accepts plain []string from the client; the handler compresses them.
+type animationRequest struct {
+	store.AnimationVariant
+	Frames []string `json:"frames"`
 }
 
 // List returns metadata for all animations.
@@ -60,64 +67,89 @@ func (h *AsciiAPI) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, variants)
 }
 
-// Create accepts a meta.json body and stores the animation.
+// Create accepts a JSON body with animation metadata and frames, and stores the variant.
 func (h *AsciiAPI) Create(c *gin.Context) {
-	var variant store.AnimationVariant
-	if err := c.ShouldBindJSON(&variant); err != nil {
+	var req animationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	if err := h.putAndRegister(c.Request.Context(), variant); err != nil {
+	gz, first, err := store.CompressFrames(req.Frames)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.AnimationVariant.FirstFrame = first
+	req.AnimationVariant.FramesGzip = gz
+	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"ok": true, "name": variant.Name})
+	c.JSON(http.StatusCreated, gin.H{"ok": true, "name": req.Name})
 }
 
-// Update replaces a variant's metadata (name in URL must match body).
+// Update replaces a variant (name in URL must match body).
 func (h *AsciiAPI) Update(c *gin.Context) {
 	name := c.Param("name")
-	var variant store.AnimationVariant
-	if err := c.ShouldBindJSON(&variant); err != nil {
+	var req animationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	if variant.Name == "" {
-		variant.Name = name
+	if req.Name == "" {
+		req.Name = name
 	}
-	if err := h.putAndRegister(c.Request.Context(), variant); err != nil {
+	gz, first, err := store.CompressFrames(req.Frames)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.AnimationVariant.FirstFrame = first
+	req.AnimationVariant.FramesGzip = gz
+	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Delete removes an animation from the store and registry.
+// Delete removes an animation from the store, registry, and cache.
 func (h *AsciiAPI) Delete(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Delete(c.Request.Context(), name); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if err == store.ErrNotFound {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	// Eagerly remove from registry and cache.
 	h.registry.Unregister("ascii-" + name)
-	h.cache.Delete(name)
+	prefix := name + "/"
+	h.cache.Range(func(k, _ any) bool {
+		if strings.HasPrefix(k.(string), prefix) {
+			h.cache.Delete(k)
+		}
+		return true
+	})
 	c.Status(http.StatusNoContent)
 }
 
 // Preview renders an animation variant in memory without saving it.
 func (h *AsciiAPI) Preview(c *gin.Context) {
-	var variant store.AnimationVariant
-	if err := c.ShouldBindJSON(&variant); err != nil {
+	var req animationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	w, err := asciiplugin.NewWidgetFromVariant(variant)
+	_, first, err := store.CompressFrames(req.Frames)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid animation: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	html, err := w.Render(context.Background(), "", variant.Size)
+	req.AnimationVariant.FirstFrame = first
+	w := asciiplugin.NewWidgetFromVariant(req.AnimationVariant)
+	html, err := w.Render(context.Background(), "", req.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -130,19 +162,7 @@ func (h *AsciiAPI) putAndRegister(ctx context.Context, variant store.AnimationVa
 	if err := h.store.Put(ctx, variant); err != nil {
 		return err
 	}
-	w, err := asciiplugin.NewWidgetFromVariant(variant)
-	if err != nil {
-		return err
-	}
-	h.registry.Register(w)
-
-	// Serialise frames for the cache.
-	strs := make([]string, len(variant.Frames))
-	copy(strs, variant.Frames)
-	fj, err := json.Marshal(strs)
-	if err != nil {
-		return err
-	}
-	h.cache.Store(variant.Name, fj)
+	h.registry.Register(asciiplugin.NewWidgetFromVariant(variant))
+	h.cache.Store(variant.Name+"/"+variant.Size, variant.FramesGzip)
 	return nil
 }

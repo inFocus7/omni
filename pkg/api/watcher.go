@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -16,11 +17,11 @@ import (
 // Watcher listens on a store.Watch channel and keeps the widget registry and
 // ASCII frame cache consistent with store events.
 // CRUD handlers also update eagerly for synchronous responses; the Watcher
-// handles out-of-band changes (fsnotify, K8s controller events, etc.).
+// handles out-of-band changes from registry syncs and other out-of-band writes.
 type Watcher struct {
 	store    store.Store
 	registry *widgets.Registry
-	cache    *sync.Map // map[string][]byte — animation name → framesJSON
+	cache    *sync.Map // map["name/size"][]byte — gzip-compressed frames blob
 	logger   zerolog.Logger
 }
 
@@ -41,18 +42,19 @@ func (w *Watcher) Start(ctx context.Context) {
 		for ev := range ch {
 			switch ev.Kind {
 			case store.EventPut:
-				widget, err := asciiplugin.NewWidgetFromVariant(ev.Variant)
-				if err != nil {
-					w.logger.Error().Err(err).Str("animation", ev.Name).Msg("create widget from store event")
-					continue
-				}
-				w.registry.Register(widget)
-				w.cache.Store(ev.Variant.Name, widget.FramesJSON())
+				w.registry.Register(asciiplugin.NewWidgetFromVariant(ev.Variant))
+				w.cache.Store(ev.Variant.Name+"/"+ev.Variant.Size, ev.Variant.FramesGzip)
 				w.logger.Info().Str("animation", ev.Name).Str("size", ev.Variant.Size).Msg("store event: registered animation")
 
 			case store.EventDelete:
 				w.registry.Unregister("ascii-" + ev.Name)
-				w.cache.Delete(ev.Name)
+				prefix := ev.Name + "/"
+				w.cache.Range(func(k, _ any) bool {
+					if strings.HasPrefix(k.(string), prefix) {
+						w.cache.Delete(k)
+					}
+					return true
+				})
 				w.logger.Info().Str("animation", ev.Name).Msg("store event: removed animation")
 			}
 		}

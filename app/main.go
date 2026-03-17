@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,10 +107,10 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to initialize plugin manager")
 	}
 
-	// ── ASCII frame cache (sync.Map: name → []byte framesJSON) ───────
+	// ── ASCII frame cache (sync.Map: "name/size" → []byte gzip) ─────
 	// Populated lazily on first read; invalidated eagerly on write/delete.
 	type asciiWidget interface {
-		FramesJSON() []byte
+		FramesGzip() []byte
 		AnimationName() string
 	}
 	var asciiFrameCache sync.Map
@@ -136,7 +137,10 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(gzip.Gzip(gzip.DefaultCompression,
+		// Frames are served pre-compressed; exclude to avoid double-compression.
+		gzip.WithExcludedPathsRegexs([]string{`^/api/ascii/frames/.+$`}),
+	))
 	r.Use(func(c *gin.Context) {
 		start := time.Now()
 		c.Next() // process
@@ -292,32 +296,51 @@ func main() {
 	})
 
 	// ── ASCII Frames API ───────────────────────────────────
-	r.GET("/api/ascii/:name/frames", func(c *gin.Context) {
-		name := c.Param("name")
-
-		// Fast path: cache hit.
-		if data, ok := asciiFrameCache.Load(name); ok {
-			c.Header("Cache-Control", "public, max-age=86400")
-			c.Data(http.StatusOK, "application/json; charset=utf-8", data.([]byte))
-			return
-		}
-
-		// Cache miss: pull from the registry (already loaded at startup).
-		// Falls back to a DB read only for animations added after boot.
-		w, ok := pm.Registry.Get("ascii-" + name)
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
-			return
-		}
-		aw, ok := w.(asciiWidget)
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
-			return
-		}
-		framesJSON := aw.FramesJSON()
-		asciiFrameCache.Store(name, framesJSON)
+	// Cache stores gzip-compressed bytes keyed by "name/size".
+	// Served pre-compressed when client supports it, decompressed otherwise.
+	serveFrames := func(c *gin.Context, gz []byte) {
 		c.Header("Cache-Control", "public, max-age=86400")
-		c.Data(http.StatusOK, "application/json; charset=utf-8", framesJSON)
+		c.Header("Vary", "Accept-Encoding")
+		if strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+			c.Header("Content-Encoding", "gzip")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", gz)
+			return
+		}
+		plain, err := store.GzipDecompress(gz)
+		if err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "decompress frames")
+			return
+		}
+		c.Data(http.StatusOK, "application/json; charset=utf-8", plain)
+	}
+
+	r.GET("/api/ascii/frames/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		size := c.Query("size")
+		if size == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "size query parameter required"})
+			return
+		}
+		cacheKey := name + "/" + size
+
+		// Fast path: cache hit (gzip bytes).
+		if data, ok := asciiFrameCache.Load(cacheKey); ok {
+			serveFrames(c, data.([]byte))
+			return
+		}
+
+		// Cache miss: fetch directly from store — no decompression, blob is already gzip.
+		v, err := st.GetVariant(c.Request.Context(), name, size)
+		if err != nil {
+			if err == store.ErrNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "animation not found"})
+			} else {
+				respondError(c, logger, http.StatusInternalServerError, err, "get variant")
+			}
+			return
+		}
+		asciiFrameCache.Store(cacheKey, v.FramesGzip)
+		serveFrames(c, v.FramesGzip)
 	})
 
 	// ── ASCII CRUD API ─────────────────────────────────────

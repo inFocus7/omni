@@ -1,7 +1,7 @@
 CLUSTER_NAME ?=omni-dev
 OMNI_NAMESPACE ?=omni-system
 
-.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down
+.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down db-shell db-dump
 
 # ── Local development ─────────────────────────────────────────────────────────
 
@@ -45,8 +45,26 @@ kind-down:
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
+LOCAL_DB ?= dashie.db
 POD := $(shell kubectl get pod -n $(OMNI_NAMESPACE) -l app.kubernetes.io/name=omni -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 POD_DB_PATH ?= /data/dashie.db
+
+# Open an interactive sqlite3 shell against the local DB (requires sqlite3)
+db-shell:
+	sqlite3 $(LOCAL_DB)
+
+# Dump all rows from all tables in the local DB
+# Example one-liner: sqlite3 dashie.db ".headers on" ".mode column" "SELECT * FROM animations;"
+db-dump:
+	@sqlite3 $(LOCAL_DB) \
+		".headers on" \
+		".mode column" \
+		"SELECT '=== animations ===' AS '';" \
+		"SELECT name, source FROM animations;" \
+		"SELECT '=== variants ===' AS '';" \
+		"SELECT name, size, cols, rows, fps FROM variants;" \
+		"SELECT '=== animation_frames ===' AS '';" \
+		"SELECT name, size, length(frames) AS frames_bytes FROM animation_frames;"
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 

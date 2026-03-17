@@ -1,9 +1,35 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 )
+
+// GzipCompress compresses data using gzip and returns the compressed bytes.
+func GzipCompress(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// GzipDecompress decompresses gzip-compressed data.
+func GzipDecompress(data []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
+}
 
 // PackMeta is the parsed content of a pack-level meta.json.
 // It describes an animation and lists its size variants with references to
@@ -22,6 +48,24 @@ type VariantFileMeta struct {
 	Rows       int    `json:"rows"`
 	FPS        int    `json:"fps"`
 	FramesFile string `json:"frames_file"`
+}
+
+// CompressFrames marshals frames to JSON, gzip-compresses the result, and
+// returns the compressed blob along with the first frame as a plain string.
+// Returns an error if frames is empty or compression fails.
+func CompressFrames(frames []string) (gz []byte, firstFrame string, err error) {
+	if len(frames) == 0 {
+		return nil, "", fmt.Errorf("CompressFrames: frames must not be empty")
+	}
+	data, err := json.Marshal(frames)
+	if err != nil {
+		return nil, "", fmt.Errorf("CompressFrames: marshal: %w", err)
+	}
+	gz, err = GzipCompress(data)
+	if err != nil {
+		return nil, "", fmt.Errorf("CompressFrames: compress: %w", err)
+	}
+	return gz, frames[0], nil
 }
 
 // ParseMetaJSON parses a meta.json byte slice into a PackMeta.

@@ -28,14 +28,15 @@ type VariantMeta struct {
 
 // AnimationVariant is a fully-loaded variant, including frame data.
 type AnimationVariant struct {
-	Name    string            `json:"name"`
-	Source  string            `json:"source,omitempty"` // registry URL, empty for local/built-in
-	Size    string            `json:"size"`
-	Cols    int               `json:"cols"`
-	Rows    int               `json:"rows"`
-	FPS     int               `json:"fps"`
-	Palette map[string]string `json:"palette,omitempty"` // class name → CSS colour
-	Frames  []string          `json:"frames"`             // raw HTML strings
+	Name       string            `json:"name"`
+	Source     string            `json:"source,omitempty"`
+	Size       string            `json:"size"`
+	Cols       int               `json:"cols"`
+	Rows       int               `json:"rows"`
+	FPS        int               `json:"fps"`
+	Palette    map[string]string `json:"palette,omitempty"`
+	FirstFrame string            `json:"-"` // frame[0] as plain HTML; used by Render()
+	FramesGzip []byte            `json:"-"` // gzip-compressed JSON []string; opaque blob
 }
 
 // EventKind identifies the type of store event.
@@ -49,8 +50,8 @@ const (
 // Event carries a store change notification.
 type Event struct {
 	Kind    EventKind
-	Variant AnimationVariant // valid for EventPut
-	Name    string           // animation name (valid for both kinds)
+	Variant AnimationVariant
+	Name    string
 }
 
 // Store is the interface every animation backend must implement.

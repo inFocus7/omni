@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -29,25 +28,25 @@ func EmbeddedDataFS() (fs.FS, error) {
 	return fs.Sub(dataFS, "data")
 }
 
-// Animation holds parsed metadata and pre-rendered HTML frames.
+// Animation holds parsed metadata and the first frame for server-side rendering.
 type Animation struct {
-	Name    string
-	Size    string
-	Cols    int
-	Rows    int
-	FPS     int
-	Palette map[string]string // class name → CSS colour
-	Frames  []template.HTML
+	Name       string
+	Size       string
+	Cols       int
+	Rows       int
+	FPS        int
+	Palette    map[string]string // class name → CSS colour
+	FirstFrame template.HTML
 }
 
 // Widget is a dashboard widget that renders an ASCII animation.
 type Widget struct {
 	anim       Animation
-	framesJSON []byte // pre-serialized []string JSON for the frames API
+	framesGzip []byte // gzip-compressed JSON []string for the frames API
 }
 
-// FramesJSON returns the pre-serialized JSON array of frame HTML strings.
-func (w *Widget) FramesJSON() []byte { return w.framesJSON }
+// FramesGzip returns the gzip-compressed frames blob.
+func (w *Widget) FramesGzip() []byte { return w.framesGzip }
 
 // AnimationName returns the animation name.
 func (w *Widget) AnimationName() string { return w.anim.Name }
@@ -75,17 +74,13 @@ func (w *Widget) Definition() widgets.WidgetDef {
 
 func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, error) {
 	a := w.anim
-	var frame0 template.HTML
-	if len(a.Frames) > 0 {
-		frame0 = a.Frames[0]
-	}
 	data := asciiTemplateData{
 		Cols:       a.Cols,
 		Rows:       a.Rows,
 		FPS:        a.FPS,
 		PaletteCSS: buildPaletteCSS(a.Palette),
-		Frame0:     frame0,
-		FramesURL:  "/api/ascii/" + a.Name + "/frames",
+		Frame0:     a.FirstFrame,
+		FramesURL:  "/api/ascii/frames/" + a.Name + "?size=" + a.Size,
 	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "ascii.tmpl", data); err != nil {
@@ -128,21 +123,17 @@ func parseSize(s string) widgets.SizeOption {
 }
 
 // NewWidgetFromVariant creates a Widget from a store.AnimationVariant.
-func NewWidgetFromVariant(v store.AnimationVariant) (*Widget, error) {
-	frames := make([]template.HTML, len(v.Frames))
-	for i, f := range v.Frames {
-		frames[i] = template.HTML(f) // pre-rendered, trusted
-	}
+func NewWidgetFromVariant(v store.AnimationVariant) *Widget {
 	a := Animation{
-		Name:    v.Name,
-		Size:    v.Size,
-		Cols:    v.Cols,
-		Rows:    v.Rows,
-		FPS:     v.FPS,
-		Palette: v.Palette, // map[string]string
-		Frames:  frames,
+		Name:       v.Name,
+		Size:       v.Size,
+		Cols:       v.Cols,
+		Rows:       v.Rows,
+		FPS:        v.FPS,
+		Palette:    v.Palette,
+		FirstFrame: template.HTML(v.FirstFrame), // pre-rendered, trusted
 	}
-	return newWidget(a)
+	return newWidget(a, v.FramesGzip)
 }
 
 // LoadFromStore loads all animations from s and returns them as Widgets.
@@ -155,30 +146,16 @@ func LoadFromStore(ctx context.Context, s store.Store) ([]*Widget, error) {
 	for _, meta := range metas {
 		variants, err := s.Get(ctx, meta.Name)
 		if err != nil {
-			// Skip animations whose frame data isn't ready yet; the Watch
-			// goroutine will register them once ConfigMaps are available.
 			continue
 		}
 		for _, v := range variants {
-			w, err := NewWidgetFromVariant(v)
-			if err != nil {
-				continue
-			}
-			result = append(result, w)
+			result = append(result, NewWidgetFromVariant(v))
 		}
 	}
 	return result, nil
 }
 
-// newWidget creates a Widget with pre-serialized framesJSON.
-func newWidget(a Animation) (*Widget, error) {
-	strs := make([]string, len(a.Frames))
-	for i, f := range a.Frames {
-		strs[i] = string(f)
-	}
-	fj, err := json.Marshal(strs)
-	if err != nil {
-		return nil, fmt.Errorf("serialize frames for %q: %w", a.Name, err)
-	}
-	return &Widget{anim: a, framesJSON: fj}, nil
+// newWidget creates a Widget from an Animation and its gzip-compressed frames blob.
+func newWidget(a Animation, gz []byte) *Widget {
+	return &Widget{anim: a, framesGzip: gz}
 }

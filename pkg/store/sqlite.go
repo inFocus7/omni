@@ -105,8 +105,11 @@ func (s *SQLiteStore) migrate() error {
 		}
 	}
 
-	// Idempotent column additions for databases created before this field existed.
+	// Idempotent column additions for databases created before these fields existed.
 	if err := s.addColumnIfMissing("animations", "source", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("animation_frames", "first_frame", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 
@@ -163,14 +166,19 @@ func (s *SQLiteStore) seedIfEmpty(fsys fs.FS) error {
 			if err := json.Unmarshal(framesData, &frames); err != nil {
 				return fmt.Errorf("seed %q: parse frames %q: %w", pack.Name, vs.FramesFile, err)
 			}
+			gz, firstFrame, err := CompressFrames(frames)
+			if err != nil {
+				return fmt.Errorf("seed %q: compress frames %q: %w", pack.Name, vs.FramesFile, err)
+			}
 			v := AnimationVariant{
-				Name:    pack.Name,
-				Size:    vs.Size,
-				Cols:    vs.Cols,
-				Rows:    vs.Rows,
-				FPS:     vs.FPS,
-				Palette: pack.Palette,
-				Frames:  frames,
+				Name:       pack.Name,
+				Size:       vs.Size,
+				Cols:       vs.Cols,
+				Rows:       vs.Rows,
+				FPS:        vs.FPS,
+				Palette:    pack.Palette,
+				FirstFrame: firstFrame,
+				FramesGzip: gz,
 			}
 			if err := s.Put(ctx, v); err != nil {
 				return fmt.Errorf("seed %q/%q: %w", pack.Name, vs.Size, err)
@@ -231,7 +239,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]AnimationMeta, error) {
 // Get returns all loaded variants (including frames) for the named animation.
 func (s *SQLiteStore) Get(ctx context.Context, name string) ([]AnimationVariant, error) {
 	rs, err := s.db.QueryContext(ctx, `
-		SELECT a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.frames
+		SELECT a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.first_frame, f.frames
 		FROM variants v
 		JOIN animations a ON a.name = v.name
 		JOIN animation_frames f ON f.name = v.name AND f.size = v.size
@@ -263,7 +271,7 @@ func (s *SQLiteStore) Get(ctx context.Context, name string) ([]AnimationVariant,
 // GetVariant returns a specific size variant of an animation.
 func (s *SQLiteStore) GetVariant(ctx context.Context, name, size string) (*AnimationVariant, error) {
 	rs, err := s.db.QueryContext(ctx, `
-		SELECT a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.frames
+		SELECT a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.first_frame, f.frames
 		FROM variants v
 		JOIN animations a ON a.name = v.name
 		JOIN animation_frames f ON f.name = v.name AND f.size = v.size
@@ -288,14 +296,15 @@ func (s *SQLiteStore) GetVariant(ctx context.Context, name, size string) (*Anima
 }
 
 // Put creates or replaces a variant and its frame data atomically.
+// v.FramesGzip and v.FirstFrame must be populated by the caller via CompressFrames.
 func (s *SQLiteStore) Put(ctx context.Context, v AnimationVariant) error {
+	if len(v.FramesGzip) == 0 {
+		return fmt.Errorf("Put %q/%q: FramesGzip must not be empty; call CompressFrames first", v.Name, v.Size)
+	}
+
 	paletteJSON, err := json.Marshal(v.Palette)
 	if err != nil {
 		return fmt.Errorf("marshal palette: %w", err)
-	}
-	framesBlob, err := json.Marshal(v.Frames)
-	if err != nil {
-		return fmt.Errorf("marshal frames: %w", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -322,8 +331,8 @@ func (s *SQLiteStore) Put(ctx context.Context, v AnimationVariant) error {
 		return fmt.Errorf("upsert variant: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO animation_frames(name, size, frames) VALUES(?,?,?)`,
-		v.Name, v.Size, framesBlob,
+		`INSERT OR REPLACE INTO animation_frames(name, size, first_frame, frames) VALUES(?,?,?,?)`,
+		v.Name, v.Size, v.FirstFrame, v.FramesGzip,
 	); err != nil {
 		return fmt.Errorf("upsert frames: %w", err)
 	}
@@ -365,10 +374,11 @@ func (s *SQLiteStore) Watch(ctx context.Context) (<-chan Event, error) {
 		for i, sub := range s.subs {
 			if sub == ch {
 				s.subs = append(s.subs[:i], s.subs[i+1:]...)
+				close(ch)
 				break
 			}
 		}
-		close(ch)
+		// If ch is not in subs, Close() already removed and closed it.
 	}()
 
 	return ch, nil
@@ -400,14 +410,14 @@ func (s *SQLiteStore) broadcast(ev Event) {
 }
 
 // scanVariant reads one row from a query that selects
-// (source TEXT, size, cols, rows, fps, palette TEXT, frames BLOB).
+// (source TEXT, size, cols, rows, fps, palette TEXT, first_frame TEXT, frames BLOB).
 func scanVariant(rs *sql.Rows, name string) (AnimationVariant, error) {
 	var source sql.NullString
-	var size, paletteJSON string
+	var size, paletteJSON, firstFrame string
 	var cols, rows, fps int
-	var framesBlob []byte
+	var framesGzip []byte
 
-	if err := rs.Scan(&source, &size, &cols, &rows, &fps, &paletteJSON, &framesBlob); err != nil {
+	if err := rs.Scan(&source, &size, &cols, &rows, &fps, &paletteJSON, &firstFrame, &framesGzip); err != nil {
 		return AnimationVariant{}, fmt.Errorf("scan variant row: %w", err)
 	}
 
@@ -416,20 +426,15 @@ func scanVariant(rs *sql.Rows, name string) (AnimationVariant, error) {
 		palette = nil
 	}
 
-	var frames []string
-	if err := json.Unmarshal(framesBlob, &frames); err != nil {
-		return AnimationVariant{}, fmt.Errorf("unmarshal frames for %q/%q: %w", name, size, err)
-	}
-
 	return AnimationVariant{
-		Name:    name,
-		Source:  source.String,
-		Size:    size,
-		Cols:    cols,
-		Rows:    rows,
-		FPS:     fps,
-		Palette: palette,
-		Frames:  frames,
+		Name:       name,
+		Source:     source.String,
+		Size:       size,
+		Cols:       cols,
+		Rows:       rows,
+		FPS:        fps,
+		Palette:    palette,
+		FirstFrame: firstFrame,
+		FramesGzip: framesGzip,
 	}, nil
 }
-
