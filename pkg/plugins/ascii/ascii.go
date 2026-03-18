@@ -53,6 +53,7 @@ func (w *Widget) AnimationName() string { return w.anim.Name }
 
 // asciiTemplateData is the data passed to ascii.tmpl.
 type asciiTemplateData struct {
+	Scope      string        // container ID: "asc-{name}-{size}"
 	Cols       int
 	Rows       int
 	FPS        int
@@ -74,11 +75,13 @@ func (w *Widget) Definition() widgets.WidgetDef {
 
 func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, error) {
 	a := w.anim
+	scope := "asc-" + a.Name + "-" + a.Size
 	data := asciiTemplateData{
+		Scope:      scope,
 		Cols:       a.Cols,
 		Rows:       a.Rows,
 		FPS:        a.FPS,
-		PaletteCSS: buildPaletteCSS(a.Palette),
+		PaletteCSS: buildPaletteCSS(scope, a.Palette),
 		Frame0:     a.FirstFrame,
 		FramesURL:  "/api/ascii/frames/" + a.Name + "?size=" + a.Size,
 	}
@@ -89,17 +92,18 @@ func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, e
 	return template.HTML(buf.String()), nil
 }
 
-// buildPaletteCSS constructs a <style> block mapping each named class to its colour.
-// Returns template.HTML to bypass html/template's CSS-context sanitization,
-// which would otherwise replace unrecognized CSS values with "ZgotmplZ".
-func buildPaletteCSS(palette map[string]string) template.HTML {
+// buildPaletteCSS constructs a scoped <style> block mapping each named class to its colour.
+// scope is the container element ID (e.g. "asc-logo-1x1") so that rules are written as
+// "#scope .class{color:value}", preventing conflicts between animations with the same class names.
+// Returns template.HTML to bypass html/template's CSS-context sanitization.
+func buildPaletteCSS(scope string, palette map[string]string) template.HTML {
 	if len(palette) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("<style>")
 	for class, color := range palette {
-		fmt.Fprintf(&b, ".%s{color:%s}", template.HTMLEscapeString(class), template.HTMLEscapeString(color))
+		fmt.Fprintf(&b, "#%s .%s{color:%s}", scope, template.HTMLEscapeString(class), template.HTMLEscapeString(color))
 	}
 	b.WriteString("</style>")
 	return template.HTML(b.String())

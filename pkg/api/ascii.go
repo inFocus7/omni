@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -93,7 +94,11 @@ func (h *AsciiAPI) Create(c *gin.Context) {
 	req.AnimationVariant.FirstFrame = first
 	req.AnimationVariant.FramesGzip = gz
 	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrInvalidInput) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "name": req.Name})
@@ -118,7 +123,11 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 	req.AnimationVariant.FirstFrame = first
 	req.AnimationVariant.FramesGzip = gz
 	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrInvalidInput) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -169,11 +178,13 @@ func (h *AsciiAPI) Preview(c *gin.Context) {
 }
 
 // putAndRegister stores a variant and eagerly updates the registry and cache.
+// The cache entry is invalidated (not eagerly written) so the Watcher goroutine
+// repopulates it with the sanitized frames broadcast via the store event.
 func (h *AsciiAPI) putAndRegister(ctx context.Context, variant store.AnimationVariant) error {
 	if err := h.store.Put(ctx, variant); err != nil {
 		return err
 	}
 	h.registry.Register(asciiplugin.NewWidgetFromVariant(variant))
-	h.cache.Store(variant.Name+"/"+variant.Size, variant.FramesGzip)
+	h.cache.Delete(variant.Name + "/" + variant.Size)
 	return nil
 }

@@ -22,10 +22,14 @@
         <div class="plugin">
 
             <div class="ascii-toolbar">
-                <input class="ascii-search app-input" placeholder="search animations…" aria-label="Search animations">
-                <select class="ascii-size-filter" aria-label="Filter by size">
-                    <option value="">all sizes</option>
-                </select>
+                <form method="GET" action="/ascii" class="ascii-filter-form">
+                    <input name="q" class="ascii-search app-input" placeholder="search animations…" aria-label="Search animations" value="{{.Query}}" autocomplete="off">
+                    <select name="size" class="ascii-size-filter" aria-label="Filter by size">
+                        <option value="">all sizes</option>
+                        {{range .Sizes}}<option value="{{.}}"{{if eq . $.SizeFilter}} selected{{end}}>{{.}}</option>{{end}}
+                    </select>
+                    <input type="hidden" name="page" value="1">
+                </form>
                 <button class="ascii-new-btn">+ New animation</button>
             </div>
 
@@ -48,11 +52,14 @@
                     <div class="ascii-card-variants">
                         {{range .Variants}}
                         <div class="ascii-card-variant" data-name="{{$animName}}" data-size="{{.Size}}" data-fps="{{.FPS}}">
-                            {{paletteCSS .Palette}}
-                            <div class="ascii-card-thumb"
-                                 data-ascii-cols="{{.Cols}}"
-                                 data-ascii-rows="{{.Rows}}">
-                                <pre class="ascii-frame">{{safeHTML .FirstFrame}}</pre>
+                            <div id="asc-{{$animName}}-{{.Size}}">
+                                {{paletteCSS $animName .Size .Palette}}
+                                <div class="ascii-card-thumb"
+                                     style="--ascii-cols:{{.Cols}};--ascii-rows:{{.Rows}}"
+                                     data-ascii-cols="{{.Cols}}"
+                                     data-ascii-rows="{{.Rows}}">
+                                    <pre class="ascii-frame">{{safeHTML .FirstFrame}}</pre>
+                                </div>
                             </div>
                             <div class="ascii-card-meta">{{.Size}} · {{.Cols}}×{{.Rows}} @ {{.FPS}}fps</div>
                             {{if not $isRemote}}
@@ -71,6 +78,30 @@
                 </div>
                 {{end}}
             </div>
+
+            {{if gt .TotalPages 1}}
+            <div class="table-pagination">
+                {{if .HasPrev}}
+                <a class="pagination-btn" href="/ascii?page={{.PrevPage}}&q={{.Query}}&size={{.SizeFilter}}">← prev</a>
+                {{else}}
+                <span class="pagination-btn disabled">← prev</span>
+                {{end}}
+                <div class="pagination-pages">
+                    {{range .Pages}}
+                    {{if .Ellipsis}}<span class="pagination-ellipsis">…</span>
+                    {{else}}<a class="pagination-page-btn{{if .Active}} active{{end}}" href="/ascii?page={{.N}}&q={{$.Query}}&size={{$.SizeFilter}}">{{.N}}</a>
+                    {{end}}
+                    {{end}}
+                </div>
+                {{if .HasNext}}
+                <a class="pagination-btn" href="/ascii?page={{.NextPage}}&q={{.Query}}&size={{.SizeFilter}}">next →</a>
+                {{else}}
+                <span class="pagination-btn disabled">next →</span>
+                {{end}}
+                <span class="pagination-info">{{.Start}}–{{.End}} of {{.Total}}</span>
+            </div>
+            {{end}}
+
             {{else}}
             <div class="ascii-empty">
                 <p>No animations yet.</p>

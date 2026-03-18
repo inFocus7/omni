@@ -1,4 +1,4 @@
-{{define "ascii.tmpl"}}{{.PaletteCSS}}<div class="widget-fill ascii-canvas"
+{{define "ascii.tmpl"}}<div id="{{.Scope}}">{{.PaletteCSS}}<div class="widget-fill ascii-canvas"
      data-ascii-cols="{{.Cols}}"
      data-ascii-rows="{{.Rows}}"
      data-ascii-fps="{{.FPS}}"
@@ -10,4 +10,4 @@
             <rect x="14" y="4" width="4" height="16"/>
         </svg>
     </div>
-</div>{{end}}
+</div></div>{{end}}

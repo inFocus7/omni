@@ -115,15 +115,18 @@ func funcMap() template.FuncMap {
 			return template.HTML(s)
 		},
 
-		// paletteCSS builds a <style> block from a map of CSS class names to colors.
-		"paletteCSS": func(palette map[string]string) template.HTML {
+		// paletteCSS builds a container-scoped <style> block from a map of CSS class names to colors.
+		// name and size identify the animation variant and are used to construct the scope ID
+		// "asc-{name}-{size}", so rules are "#asc-name-size .class{color:value}".
+		"paletteCSS": func(name, size string, palette map[string]string) template.HTML {
 			if len(palette) == 0 {
 				return ""
 			}
+			scope := "asc-" + name + "-" + size
 			var b strings.Builder
 			b.WriteString("<style>")
 			for class, color := range palette {
-				fmt.Fprintf(&b, ".%s{color:%s}", template.HTMLEscapeString(class), template.HTMLEscapeString(color))
+				fmt.Fprintf(&b, "#%s .%s{color:%s}", scope, template.HTMLEscapeString(class), template.HTMLEscapeString(color))
 			}
 			b.WriteString("</style>")
 			return template.HTML(b.String())

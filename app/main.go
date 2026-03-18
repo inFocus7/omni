@@ -60,6 +60,44 @@ func filterStrings(slice []string, exclude string) []string {
 	return result
 }
 
+// PageInfo represents one entry in the pagination control (a page link or ellipsis).
+type PageInfo struct {
+	N        int
+	Active   bool
+	Ellipsis bool
+}
+
+// buildPageInfos returns a sparse list of page entries for the pagination UI,
+// inserting ellipsis markers for large page ranges.
+func buildPageInfos(current, total int) []PageInfo {
+	if total <= 1 {
+		return nil
+	}
+
+	// Collect candidate page numbers (1-indexed).
+	set := map[int]bool{}
+	for _, p := range []int{1, total, current - 1, current, current + 1} {
+		if p >= 1 && p <= total {
+			set[p] = true
+		}
+	}
+
+	sorted := make([]int, 0, len(set))
+	for p := range set {
+		sorted = append(sorted, p)
+	}
+	sort.Ints(sorted)
+
+	result := make([]PageInfo, 0, len(sorted)*2)
+	for i, p := range sorted {
+		if i > 0 && p > sorted[i-1]+1 {
+			result = append(result, PageInfo{Ellipsis: true})
+		}
+		result = append(result, PageInfo{N: p, Active: p == current})
+	}
+	return result
+}
+
 // filterWidgets returns a new slice with only widgets not matching the given ID.
 func filterWidgets(widgets []settings.DashboardWidget, excludeID string) []settings.DashboardWidget {
 	result := widgets[:0]
@@ -241,12 +279,58 @@ func main() {
 	})
 
 	r.GET("/ascii", func(c *gin.Context) {
-		summaries, err := st.ListSummaries(c.Request.Context())
+		const pageSize = 20
+
+		q := c.DefaultQuery("q", "")
+		sizeFilter := c.DefaultQuery("size", "")
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if page < 1 {
+			page = 1
+		}
+
+		pg, err := st.ListSummariesPaged(c.Request.Context(), q, sizeFilter, page, pageSize)
 		if err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to list ascii summaries")
 			return
 		}
-		if err := render(c, "ascii_page.tmpl", gin.H{"Animations": summaries}); err != nil {
+
+		sizes, err := st.ListDistinctSizes(c.Request.Context())
+		if err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to list ascii sizes")
+			return
+		}
+
+		totalPages := 1
+		if pg.Total > 0 {
+			totalPages = (pg.Total + pageSize - 1) / pageSize
+		}
+		start := (page-1)*pageSize + 1
+		end := start + len(pg.Animations) - 1
+		if pg.Total == 0 {
+			start, end = 0, 0
+		}
+
+		pages := buildPageInfos(page, totalPages)
+
+		data := gin.H{
+			"Animations": pg.Animations,
+			"Total":      pg.Total,
+			"Page":       page,
+			"PageSize":   pageSize,
+			"TotalPages": totalPages,
+			"HasPrev":    page > 1,
+			"HasNext":    page < totalPages,
+			"PrevPage":   max(1, page-1),
+			"NextPage":   min(totalPages, page+1),
+			"Query":      q,
+			"SizeFilter": sizeFilter,
+			"Sizes":      sizes,
+			"Pages":      pages,
+			"Start":      start,
+			"End":        end,
+		}
+
+		if err := render(c, "ascii_page.tmpl", data); err != nil {
 			respondError(c, logger, http.StatusInternalServerError, err, "failed to render ascii page")
 		}
 	})

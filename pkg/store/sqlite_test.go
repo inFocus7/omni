@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -228,5 +229,193 @@ func TestPutRejectsEmptyFramesGzip(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for empty FramesGzip, got nil")
+	}
+}
+
+// TestPutRejectsInvalidPalette verifies Put returns ErrInvalidInput for bad palette entries.
+func TestPutRejectsInvalidPalette(t *testing.T) {
+	st, err := OpenSQLite(":memory:", nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	gz, first, err := CompressFrames([]string{"<span>f</span>"})
+	if err != nil {
+		t.Fatalf("CompressFrames: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		palette map[string]string
+	}{
+		{"bad class name", map[string]string{"1bad": "#fff"}},
+		{"class with dot", map[string]string{"has.dot": "#fff"}},
+		{"bad color url", map[string]string{"ring": "url(evil)"}},
+		{"bad color expression", map[string]string{"ring": "expression(x)"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := AnimationVariant{
+				Name:       "test",
+				Size:       "1x1",
+				Cols:       80, Rows: 24, FPS: 12,
+				Palette:    tc.palette,
+				FirstFrame: first,
+				FramesGzip: gz,
+			}
+			putErr := st.Put(ctx, v)
+			if putErr == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(putErr, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got: %v", putErr)
+			}
+		})
+	}
+}
+
+// TestListSummariesPaged verifies pagination, filtering, and count behaviour.
+func TestListSummariesPaged(t *testing.T) {
+	st, err := OpenSQLite(":memory:", nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Seed 5 animations: alpha, beta, gamma, delta, epsilon.
+	names := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
+	for _, name := range names {
+		gz, first, err := CompressFrames([]string{"<span>f</span>"})
+		if err != nil {
+			t.Fatalf("CompressFrames %s: %v", name, err)
+		}
+		if err := st.Put(ctx, AnimationVariant{
+			Name: name, Size: "1x1",
+			Cols: 80, Rows: 24, FPS: 12,
+			FirstFrame: first, FramesGzip: gz,
+		}); err != nil {
+			t.Fatalf("put %s/1x1: %v", name, err)
+		}
+		// Also add a 2x1 variant for "alpha" only.
+		if name == "alpha" {
+			gz2, first2, err := CompressFrames([]string{"<span>g</span>"})
+			if err != nil {
+				t.Fatalf("CompressFrames 2x1: %v", err)
+			}
+			if err := st.Put(ctx, AnimationVariant{
+				Name: name, Size: "2x1",
+				Cols: 160, Rows: 24, FPS: 12,
+				FirstFrame: first2, FramesGzip: gz2,
+			}); err != nil {
+				t.Fatalf("put %s/2x1: %v", name, err)
+			}
+		}
+	}
+
+	// Page 1 of 2 (pageSize=3): should return 3 animations.
+	pg, err := st.ListSummariesPaged(ctx, "", "", 1, 3)
+	if err != nil {
+		t.Fatalf("ListSummariesPaged p1: %v", err)
+	}
+	if pg.Total != 5 {
+		t.Errorf("Total: want 5, got %d", pg.Total)
+	}
+	if len(pg.Animations) != 3 {
+		t.Errorf("page 1 count: want 3, got %d", len(pg.Animations))
+	}
+	if pg.Page != 1 {
+		t.Errorf("Page: want 1, got %d", pg.Page)
+	}
+
+	// Page 2 should return 2 animations.
+	pg2, err := st.ListSummariesPaged(ctx, "", "", 2, 3)
+	if err != nil {
+		t.Fatalf("ListSummariesPaged p2: %v", err)
+	}
+	if len(pg2.Animations) != 2 {
+		t.Errorf("page 2 count: want 2, got %d", len(pg2.Animations))
+	}
+
+	// Query filter: "a" matches alpha, beta, gamma, delta (4 of 5 names).
+	pgQ, err := st.ListSummariesPaged(ctx, "a", "", 1, 10)
+	if err != nil {
+		t.Fatalf("ListSummariesPaged query: %v", err)
+	}
+	if pgQ.Total != 4 {
+		t.Errorf("query 'a' total: want 4 (alpha, beta, gamma, delta), got %d", pgQ.Total)
+	}
+
+	// Size filter: "2x1" matches only alpha.
+	pgS, err := st.ListSummariesPaged(ctx, "", "2x1", 1, 10)
+	if err != nil {
+		t.Fatalf("ListSummariesPaged size: %v", err)
+	}
+	if pgS.Total != 1 {
+		t.Errorf("size '2x1' total: want 1, got %d", pgS.Total)
+	}
+	if len(pgS.Animations) != 1 || pgS.Animations[0].Name != "alpha" {
+		t.Errorf("size '2x1': expected alpha, got %v", pgS.Animations)
+	}
+	// Only the 2x1 variant should be returned for alpha.
+	if len(pgS.Animations[0].Variants) != 1 || pgS.Animations[0].Variants[0].Size != "2x1" {
+		t.Errorf("size '2x1': expected single 2x1 variant for alpha, got %v", pgS.Animations[0].Variants)
+	}
+
+	// Empty DB page returns zero results.
+	pgEmpty, err := st.ListSummariesPaged(ctx, "zzz-no-match", "", 1, 10)
+	if err != nil {
+		t.Fatalf("ListSummariesPaged no-match: %v", err)
+	}
+	if pgEmpty.Total != 0 || len(pgEmpty.Animations) != 0 {
+		t.Errorf("no-match: expected 0, got total=%d anim=%d", pgEmpty.Total, len(pgEmpty.Animations))
+	}
+}
+
+// TestListDistinctSizes verifies all distinct sizes are returned.
+func TestListDistinctSizes(t *testing.T) {
+	st, err := OpenSQLite(":memory:", nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Empty store.
+	sizes, err := st.ListDistinctSizes(ctx)
+	if err != nil {
+		t.Fatalf("ListDistinctSizes empty: %v", err)
+	}
+	if len(sizes) != 0 {
+		t.Errorf("expected 0 sizes, got %v", sizes)
+	}
+
+	// Add variants with two sizes.
+	for _, size := range []string{"1x1", "2x1", "1x1"} {
+		name := "anim-" + size
+		gz, first, err := CompressFrames([]string{"<span>f</span>"})
+		if err != nil {
+			t.Fatalf("CompressFrames: %v", err)
+		}
+		if err := st.Put(ctx, AnimationVariant{
+			Name: name, Size: size,
+			Cols: 80, Rows: 24, FPS: 12,
+			FirstFrame: first, FramesGzip: gz,
+		}); err != nil {
+			t.Fatalf("put %s/%s: %v", name, size, err)
+		}
+	}
+
+	sizes, err = st.ListDistinctSizes(ctx)
+	if err != nil {
+		t.Fatalf("ListDistinctSizes: %v", err)
+	}
+	if len(sizes) != 2 {
+		t.Errorf("expected 2 distinct sizes, got %v", sizes)
 	}
 }

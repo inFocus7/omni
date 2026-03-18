@@ -11,6 +11,9 @@ var ErrReadOnly = errors.New("store is read-only")
 // ErrNotFound is returned when an animation or variant does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalidInput is returned when palette or frame content fails validation.
+var ErrInvalidInput = errors.New("invalid input")
+
 // AnimationMeta contains metadata about an animation (without frame data).
 type AnimationMeta struct {
 	Name     string        `json:"name"`
@@ -72,6 +75,14 @@ type Event struct {
 	Name    string
 }
 
+// SummaryPage is the result of a paginated ListSummariesPaged query.
+type SummaryPage struct {
+	Animations []AnimationSummary `json:"animations"`
+	Total      int                `json:"total"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"page_size"`
+}
+
 // Store is the interface every animation backend must implement.
 type Store interface {
 	// List returns metadata for all known animations (no frame data).
@@ -79,6 +90,12 @@ type Store interface {
 
 	// ListSummaries returns animation metadata with first frames for gallery rendering.
 	ListSummaries(ctx context.Context) ([]AnimationSummary, error)
+
+	// ListSummariesPaged returns a page of animation summaries filtered by query and size.
+	ListSummariesPaged(ctx context.Context, query, sizeFilter string, page, pageSize int) (SummaryPage, error)
+
+	// ListDistinctSizes returns all distinct variant sizes present in the store.
+	ListDistinctSizes(ctx context.Context) ([]string, error)
 
 	// Get returns all loaded variants for the named animation.
 	Get(ctx context.Context, name string) ([]AnimationVariant, error)

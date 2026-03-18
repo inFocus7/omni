@@ -1208,51 +1208,27 @@
   function initAsciiGallery() {
     if (!document.querySelector('.ascii-gallery, .ascii-empty')) return;
 
-    // Font scaling for static gallery thumbnails (not auto-animated).
-    document.querySelectorAll('.ascii-card-thumb').forEach(thumb => {
-      const cols = parseInt(thumb.dataset.asciiCols, 10) || 40;
-      const rows = parseInt(thumb.dataset.asciiRows, 10) || 20;
-      const CHAR_W = 0.6;
-      const CHAR_H = 1.0;
-      const ro = new ResizeObserver(entries => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          const maxFontW = width / (cols * CHAR_W);
-          const maxFontH = height / (rows * CHAR_H);
-          thumb.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
-        }
-      });
-      ro.observe(thumb);
-    });
+    // Font scaling is handled by CSS container queries on .ascii-card-thumb —
+    // no ResizeObserver needed for gallery thumbnails.
 
-    // Search filter
+    // Search and size filter submit the form for server-side pagination.
+    const filterForm = document.querySelector('.ascii-filter-form');
     const searchInput = document.querySelector('.ascii-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.toLowerCase();
-        document.querySelectorAll('.ascii-card').forEach(card => {
-          card.hidden = !!(q && !(card.dataset.name || '').toLowerCase().includes(q));
-        });
-      });
-    }
-
-    // Size filter — populate from DOM then filter on change
     const sizeFilter = document.querySelector('.ascii-size-filter');
-    if (sizeFilter) {
-      const sizes = new Set();
-      document.querySelectorAll('.ascii-card-variant[data-size]').forEach(v => sizes.add(v.dataset.size));
-      sizes.forEach(sz => {
-        const opt = document.createElement('option');
-        opt.value = sz;
-        opt.textContent = sz;
-        sizeFilter.appendChild(opt);
-      });
-      sizeFilter.addEventListener('change', () => {
-        const selected = sizeFilter.value;
-        document.querySelectorAll('.ascii-card-variant').forEach(v => {
-          v.hidden = !!(selected && v.dataset.size !== selected);
+
+    if (filterForm) {
+      // Debounced search: submit form after user stops typing.
+      let searchDebounce = null;
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          clearTimeout(searchDebounce);
+          searchDebounce = setTimeout(() => filterForm.submit(), 400);
         });
-      });
+      }
+      // Size filter: submit immediately on change.
+      if (sizeFilter) {
+        sizeFilter.addEventListener('change', () => filterForm.submit());
+      }
     }
 
     // Play buttons — fetch frames and start animation

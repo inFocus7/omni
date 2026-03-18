@@ -294,6 +294,157 @@ func (s *SQLiteStore) ListSummaries(ctx context.Context) ([]AnimationSummary, er
 	return result, nil
 }
 
+// ListSummariesPaged returns a paginated page of animation summaries filtered by
+// query (substring match on name) and sizeFilter (exact variant size match).
+// page is 1-indexed. pageSize controls results per page.
+func (s *SQLiteStore) ListSummariesPaged(ctx context.Context, query, sizeFilter string, page, pageSize int) (SummaryPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+	queryPattern := "%" + query + "%"
+
+	// Count total matching animations (respects both query and sizeFilter).
+	var total int
+	countQuery := `
+		SELECT COUNT(DISTINCT a.name)
+		FROM animations a
+		JOIN variants v ON v.name = a.name
+		WHERE (? = '' OR a.name LIKE ?)
+		  AND (? = '' OR v.size = ?)`
+	if err := s.db.QueryRowContext(ctx, countQuery, query, queryPattern, sizeFilter, sizeFilter).Scan(&total); err != nil {
+		return SummaryPage{}, fmt.Errorf("count paged summaries: %w", err)
+	}
+
+	// Fetch paged animation names with their sources.
+	nameRows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT a.name, a.source
+		FROM animations a
+		JOIN variants v ON v.name = a.name
+		WHERE (? = '' OR a.name LIKE ?)
+		  AND (? = '' OR v.size = ?)
+		ORDER BY a.name
+		LIMIT ? OFFSET ?`,
+		query, queryPattern, sizeFilter, sizeFilter, pageSize, offset,
+	)
+	if err != nil {
+		return SummaryPage{}, fmt.Errorf("list paged names: %w", err)
+	}
+	defer nameRows.Close()
+
+	var order []string
+	byName := map[string]*AnimationSummary{}
+	for nameRows.Next() {
+		var name string
+		var source sql.NullString
+		if err := nameRows.Scan(&name, &source); err != nil {
+			return SummaryPage{}, fmt.Errorf("scan paged name row: %w", err)
+		}
+		byName[name] = &AnimationSummary{Name: name, Source: source.String}
+		order = append(order, name)
+	}
+	if err := nameRows.Err(); err != nil {
+		return SummaryPage{}, fmt.Errorf("iterate paged names: %w", err)
+	}
+	nameRows.Close()
+
+	if len(order) == 0 {
+		return SummaryPage{Total: total, Page: page, PageSize: pageSize}, nil
+	}
+
+	// Build IN clause placeholders for the paged names.
+	placeholders := make([]string, len(order))
+	args := make([]any, 0, len(order)+2)
+	for i, name := range order {
+		placeholders[i] = "?"
+		args = append(args, name)
+	}
+	args = append(args, sizeFilter, sizeFilter)
+
+	dataQuery := `
+		SELECT a.name, a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.first_frame
+		FROM animations a
+		JOIN variants v ON v.name = a.name
+		JOIN animation_frames f ON f.name = v.name AND f.size = v.size
+		WHERE a.name IN (` + strings.Join(placeholders, ",") + `)
+		  AND (? = '' OR v.size = ?)
+		ORDER BY a.name, v.size`
+	rs, err := s.db.QueryContext(ctx, dataQuery, args...)
+	if err != nil {
+		return SummaryPage{}, fmt.Errorf("list paged data: %w", err)
+	}
+	defer rs.Close()
+
+	for rs.Next() {
+		var name string
+		var source sql.NullString
+		var size sql.NullString
+		var cols, rows, fps sql.NullInt64
+		var paletteJSON sql.NullString
+		var firstFrame sql.NullString
+		if err := rs.Scan(&name, &source, &size, &cols, &rows, &fps, &paletteJSON, &firstFrame); err != nil {
+			return SummaryPage{}, fmt.Errorf("scan paged data row: %w", err)
+		}
+		anim, ok := byName[name]
+		if !ok {
+			continue
+		}
+		if size.Valid {
+			var palette map[string]string
+			if paletteJSON.Valid {
+				json.Unmarshal([]byte(paletteJSON.String), &palette) //nolint:errcheck
+			}
+			anim.Variants = append(anim.Variants, VariantSummary{
+				Size:       size.String,
+				Cols:       int(cols.Int64),
+				Rows:       int(rows.Int64),
+				FPS:        int(fps.Int64),
+				Palette:    palette,
+				FirstFrame: firstFrame.String,
+			})
+		}
+	}
+	if err := rs.Err(); err != nil {
+		return SummaryPage{}, fmt.Errorf("iterate paged data: %w", err)
+	}
+
+	result := make([]AnimationSummary, 0, len(order))
+	for _, name := range order {
+		if anim, ok := byName[name]; ok && len(anim.Variants) > 0 {
+			result = append(result, *anim)
+		}
+	}
+
+	return SummaryPage{
+		Animations: result,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+	}, nil
+}
+
+// ListDistinctSizes returns all distinct variant sizes in the store, sorted.
+func (s *SQLiteStore) ListDistinctSizes(ctx context.Context) ([]string, error) {
+	rs, err := s.db.QueryContext(ctx, `SELECT DISTINCT size FROM variants ORDER BY size`)
+	if err != nil {
+		return nil, fmt.Errorf("list distinct sizes: %w", err)
+	}
+	defer rs.Close()
+
+	var sizes []string
+	for rs.Next() {
+		var size string
+		if err := rs.Scan(&size); err != nil {
+			return nil, fmt.Errorf("scan size row: %w", err)
+		}
+		sizes = append(sizes, size)
+	}
+	return sizes, rs.Err()
+}
+
 // Get returns all loaded variants (including frames) for the named animation.
 func (s *SQLiteStore) Get(ctx context.Context, name string) ([]AnimationVariant, error) {
 	rs, err := s.db.QueryContext(ctx, `
@@ -355,10 +506,21 @@ func (s *SQLiteStore) GetVariant(ctx context.Context, name, size string) (*Anima
 
 // Put creates or replaces a variant and its frame data atomically.
 // v.FramesGzip and v.FirstFrame must be populated by the caller via CompressFrames.
+// Palette and frame HTML are validated and sanitized before storage.
 func (s *SQLiteStore) Put(ctx context.Context, v AnimationVariant) error {
 	if len(v.FramesGzip) == 0 {
 		return fmt.Errorf("Put %q/%q: FramesGzip must not be empty; call CompressFrames first", v.Name, v.Size)
 	}
+
+	if err := SanitizePalette(v.Palette); err != nil {
+		return fmt.Errorf("Put %q/%q: %w", v.Name, v.Size, err)
+	}
+
+	sanitized, err := sanitizeAndRecompressFrames(v)
+	if err != nil {
+		return fmt.Errorf("Put %q/%q: %w", v.Name, v.Size, err)
+	}
+	v = sanitized
 
 	paletteJSON, err := json.Marshal(v.Palette)
 	if err != nil {
