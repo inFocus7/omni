@@ -236,6 +236,64 @@ func (s *SQLiteStore) List(ctx context.Context) ([]AnimationMeta, error) {
 	return result, nil
 }
 
+// ListSummaries returns animation metadata including first frames for gallery rendering.
+// It uses a single JOIN query and avoids loading the heavy gzip blobs.
+func (s *SQLiteStore) ListSummaries(ctx context.Context) ([]AnimationSummary, error) {
+	rs, err := s.db.QueryContext(ctx, `
+		SELECT a.name, a.source, v.size, v.cols, v.rows, v.fps, v.palette, f.first_frame
+		FROM animations a
+		LEFT JOIN variants v ON v.name = a.name
+		LEFT JOIN animation_frames f ON f.name = v.name AND f.size = v.size
+		ORDER BY a.name, v.size
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list summaries: %w", err)
+	}
+	defer rs.Close()
+
+	var order []string
+	byName := map[string]*AnimationSummary{}
+
+	for rs.Next() {
+		var name string
+		var source sql.NullString
+		var size sql.NullString
+		var cols, rows, fps sql.NullInt64
+		var paletteJSON sql.NullString
+		var firstFrame sql.NullString
+		if err := rs.Scan(&name, &source, &size, &cols, &rows, &fps, &paletteJSON, &firstFrame); err != nil {
+			return nil, fmt.Errorf("scan summary row: %w", err)
+		}
+		if _, exists := byName[name]; !exists {
+			byName[name] = &AnimationSummary{Name: name, Source: source.String}
+			order = append(order, name)
+		}
+		if size.Valid {
+			var palette map[string]string
+			if paletteJSON.Valid {
+				json.Unmarshal([]byte(paletteJSON.String), &palette) //nolint:errcheck
+			}
+			byName[name].Variants = append(byName[name].Variants, VariantSummary{
+				Size:       size.String,
+				Cols:       int(cols.Int64),
+				Rows:       int(rows.Int64),
+				FPS:        int(fps.Int64),
+				Palette:    palette,
+				FirstFrame: firstFrame.String,
+			})
+		}
+	}
+	if err := rs.Err(); err != nil {
+		return nil, fmt.Errorf("iterate summaries: %w", err)
+	}
+
+	result := make([]AnimationSummary, 0, len(order))
+	for _, name := range order {
+		result = append(result, *byName[name])
+	}
+	return result, nil
+}
+
 // Get returns all loaded variants (including frames) for the named animation.
 func (s *SQLiteStore) Get(ctx context.Context, name string) ([]AnimationVariant, error) {
 	rs, err := s.db.QueryContext(ctx, `

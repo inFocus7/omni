@@ -222,6 +222,13 @@
       this.rafId = requestAnimationFrame(ts => this._tick(ts));
     }
 
+    stop() {
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+    }
+
     _tick(ts) {
       if (!this.canvas.isConnected) return; // DOM removed (SPA nav)
       this.rafId = requestAnimationFrame(ts => this._tick(ts));
@@ -240,72 +247,76 @@
     }
   }
 
-  function initAsciiAnimations() {
-    document.querySelectorAll('.ascii-canvas').forEach(canvas => {
-      const fps = parseInt(canvas.dataset.asciiFps, 10) || 12;
-      const cols = parseInt(canvas.dataset.asciiCols, 10) || 40;
-      const rows = parseInt(canvas.dataset.asciiRows, 10) || 20;
-      const framesUrl = canvas.dataset.asciiFramesUrl;
+  // Per-canvas setup: font scaling + lazy frame loading + animation start.
+  // Called by initAsciiAnimations() and widget picker loadPreview().
+  function initAsciiAnimationForCanvas(canvas) {
+    const fps = parseInt(canvas.dataset.asciiFps, 10) || 12;
+    const cols = parseInt(canvas.dataset.asciiCols, 10) || 40;
+    const rows = parseInt(canvas.dataset.asciiRows, 10) || 20;
+    const framesUrl = canvas.dataset.asciiFramesUrl;
 
-      // Font scaling via ResizeObserver
-      const CHAR_W = 0.6;
-      const CHAR_H = 1.0;
-      const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          const maxFontW = width / (cols * CHAR_W);
-          const maxFontH = height / (rows * CHAR_H);
-          canvas.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
-        }
-      });
-      resizeObserver.observe(canvas);
-
-      function startController(frames) {
-        if (frames.length === 0) return;
-        const ctrl = new AsciiAnimController(canvas, frames, fps);
-        ctrl.start();
-        canvas.addEventListener('click', () => ctrl.togglePause());
-      }
-
-      if (framesUrl) {
-        // Lazy-load remaining frames once the widget enters the viewport.
-        const io = new IntersectionObserver((entries, observer) => {
-          if (!entries[0].isIntersecting) return;
-          observer.disconnect();
-          fetch(framesUrl)
-            .then(r => r.json())
-            .then(frameStrings => {
-              // Replace the inline frame 0 pre and append the rest.
-              const inlinePre = canvas.querySelector('.ascii-frame');
-              const allPres = [];
-              frameStrings.forEach((html, i) => {
-                let pre;
-                if (i === 0 && inlinePre) {
-                  pre = inlinePre;
-                } else {
-                  pre = document.createElement('pre');
-                  pre.className = 'ascii-frame';
-                  pre.hidden = true;
-                  pre.innerHTML = html;
-                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
-                }
-                allPres.push(pre);
-              });
-              startController(allPres);
-            })
-            .catch(() => {
-              // Graceful degradation: show frame 0 statically.
-              const inlinePre = canvas.querySelector('.ascii-frame');
-              if (inlinePre) inlinePre.hidden = false;
-            });
-        }, { threshold: 0 });
-        io.observe(canvas);
-      } else {
-        // Fallback: all frames already inline (e.g. older format).
-        const frames = Array.from(canvas.querySelectorAll('.ascii-frame'));
-        startController(frames);
+    // Font scaling via ResizeObserver
+    const CHAR_W = 0.6;
+    const CHAR_H = 1.0;
+    const resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        const maxFontW = width / (cols * CHAR_W);
+        const maxFontH = height / (rows * CHAR_H);
+        canvas.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
       }
     });
+    resizeObserver.observe(canvas);
+
+    function startController(frames) {
+      if (frames.length === 0) return;
+      const ctrl = new AsciiAnimController(canvas, frames, fps);
+      ctrl.start();
+      canvas.addEventListener('click', () => ctrl.togglePause());
+    }
+
+    if (framesUrl) {
+      // Lazy-load remaining frames once the widget enters the viewport.
+      const io = new IntersectionObserver((entries, observer) => {
+        if (!entries[0].isIntersecting) return;
+        observer.disconnect();
+        fetch(framesUrl)
+          .then(r => r.json())
+          .then(frameStrings => {
+            // Replace the inline frame 0 pre and append the rest.
+            const inlinePre = canvas.querySelector('.ascii-frame');
+            const allPres = [];
+            frameStrings.forEach((html, i) => {
+              let pre;
+              if (i === 0 && inlinePre) {
+                pre = inlinePre;
+              } else {
+                pre = document.createElement('pre');
+                pre.className = 'ascii-frame';
+                pre.hidden = true;
+                pre.innerHTML = html;
+                canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
+              }
+              allPres.push(pre);
+            });
+            startController(allPres);
+          })
+          .catch(() => {
+            // Graceful degradation: show frame 0 statically.
+            const inlinePre = canvas.querySelector('.ascii-frame');
+            if (inlinePre) inlinePre.hidden = false;
+          });
+      }, { threshold: 0 });
+      io.observe(canvas);
+    } else {
+      // Fallback: all frames already inline (e.g. older format).
+      const frames = Array.from(canvas.querySelectorAll('.ascii-frame'));
+      startController(frames);
+    }
+  }
+
+  function initAsciiAnimations() {
+    document.querySelectorAll('.ascii-canvas').forEach(initAsciiAnimationForCanvas);
   }
 
   // ── Tooltips for [data-tip] elements ────────────────────
@@ -385,6 +396,7 @@
   initBreakpointSwitching();
   initBadges();
   initAsciiAnimations();
+  initAsciiGallery();
 
   // ── Widget grid: edit mode, drag-and-drop, controls ────
   function initWidgetGrid() {
@@ -1005,6 +1017,8 @@
         .then(r => r.json())
         .then(data => {
           previewArea.innerHTML = data.html;
+          // Init ASCII animations in the preview area.
+          previewArea.querySelectorAll('.ascii-canvas').forEach(initAsciiAnimationForCanvas);
         })
         .catch(() => {
           previewArea.innerHTML = '<p style="color:var(--remove)">Failed to load preview.</p>';
@@ -1188,6 +1202,593 @@
         switchBreakpoint(bp.cols);
       }
     });
+  }
+
+  // ── ASCII Gallery page ──────────────────────────────────
+  function initAsciiGallery() {
+    if (!document.querySelector('.ascii-gallery, .ascii-empty')) return;
+
+    // Font scaling for static gallery thumbnails (not auto-animated).
+    document.querySelectorAll('.ascii-card-thumb').forEach(thumb => {
+      const cols = parseInt(thumb.dataset.asciiCols, 10) || 40;
+      const rows = parseInt(thumb.dataset.asciiRows, 10) || 20;
+      const CHAR_W = 0.6;
+      const CHAR_H = 1.0;
+      const ro = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          const maxFontW = width / (cols * CHAR_W);
+          const maxFontH = height / (rows * CHAR_H);
+          thumb.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
+        }
+      });
+      ro.observe(thumb);
+    });
+
+    // Search filter
+    const searchInput = document.querySelector('.ascii-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        document.querySelectorAll('.ascii-card').forEach(card => {
+          card.hidden = !!(q && !(card.dataset.name || '').toLowerCase().includes(q));
+        });
+      });
+    }
+
+    // Size filter — populate from DOM then filter on change
+    const sizeFilter = document.querySelector('.ascii-size-filter');
+    if (sizeFilter) {
+      const sizes = new Set();
+      document.querySelectorAll('.ascii-card-variant[data-size]').forEach(v => sizes.add(v.dataset.size));
+      sizes.forEach(sz => {
+        const opt = document.createElement('option');
+        opt.value = sz;
+        opt.textContent = sz;
+        sizeFilter.appendChild(opt);
+      });
+      sizeFilter.addEventListener('change', () => {
+        const selected = sizeFilter.value;
+        document.querySelectorAll('.ascii-card-variant').forEach(v => {
+          v.hidden = !!(selected && v.dataset.size !== selected);
+        });
+      });
+    }
+
+    // Play buttons — fetch frames and start animation
+    document.querySelector('.ascii-gallery')?.addEventListener('click', e => {
+      const btn = e.target.closest('.ascii-card-play');
+      if (!btn) return;
+      const variant = btn.closest('.ascii-card-variant');
+      if (!variant) return;
+      const thumb = variant.querySelector('.ascii-card-thumb');
+      if (!thumb) return;
+      const animName = variant.dataset.name;
+      const size = variant.dataset.size;
+      const fps = parseInt(variant.dataset.fps, 10) || 12;
+
+      if (btn.dataset.playing === '1') {
+        // Stop
+        const ctrl = thumb._asciiCtrl;
+        if (ctrl) {
+          ctrl.stop();
+          thumb._asciiCtrl = null;
+          // Remove extra frame pres, show first frame
+          const pres = [...thumb.querySelectorAll('.ascii-frame')];
+          pres.forEach((p, i) => { if (i > 0) p.remove(); });
+          if (pres[0]) pres[0].hidden = false;
+        }
+        btn.dataset.playing = '0';
+        btn.textContent = '▶';
+        return;
+      }
+
+      btn.textContent = '…';
+      btn.disabled = true;
+
+      fetch(`/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(size)}`)
+        .then(r => r.json())
+        .then(frameStrings => {
+          const inlinePre = thumb.querySelector('.ascii-frame');
+          const allPres = [];
+          frameStrings.forEach((html, i) => {
+            let pre;
+            if (i === 0 && inlinePre) {
+              pre = inlinePre;
+            } else {
+              pre = document.createElement('pre');
+              pre.className = 'ascii-frame';
+              pre.hidden = true;
+              pre.innerHTML = html;
+              thumb.appendChild(pre);
+            }
+            allPres.push(pre);
+          });
+          const ctrl = new AsciiAnimController(thumb, allPres, fps);
+          ctrl.start();
+          thumb._asciiCtrl = ctrl;
+          btn.dataset.playing = '1';
+          btn.textContent = '■';
+          btn.disabled = false;
+        })
+        .catch(() => {
+          btn.textContent = '▶';
+          btn.disabled = false;
+          showToast('Failed to load frames', { type: 'error' });
+        });
+    });
+
+    initAsciiModal();
+  }
+
+  // ── ASCII CRUD Modal ────────────────────────────────────
+  function initAsciiModal() {
+    const overlay = document.getElementById('ascii-modal-overlay');
+    if (!overlay) return;
+
+    const closeBtn = document.getElementById('ascii-modal-close');
+    const cancelBtn = document.getElementById('ascii-modal-cancel');
+    const saveBtn = document.getElementById('ascii-modal-save');
+    const titleEl = document.getElementById('ascii-modal-title');
+    const errorsEl = document.getElementById('ascii-modal-errors');
+
+    const nameInput = document.getElementById('ascii-form-name');
+    const sizeInput = document.getElementById('ascii-form-size');
+    const colsInput = document.getElementById('ascii-form-cols');
+    const rowsInput = document.getElementById('ascii-form-rows');
+    const fpsInput = document.getElementById('ascii-form-fps');
+    const framesTextarea = document.getElementById('ascii-form-frames');
+    const paletteRowsEl = document.getElementById('ascii-palette-rows');
+    const paletteAddBtn = document.getElementById('ascii-palette-add');
+    const fileInput = document.getElementById('ascii-file-input');
+    const fileBtn = document.getElementById('ascii-file-btn');
+    const fileDrop = document.getElementById('ascii-file-drop');
+    const framesCount = document.getElementById('ascii-frames-count');
+    const previewPane = document.getElementById('ascii-preview-pane');
+    const previewPlay = document.getElementById('ascii-preview-play');
+    const previewStatus = document.getElementById('ascii-preview-status');
+
+    let modalMode = 'create';
+    let modalName = '';
+    let localFrames = [];
+    let previewCtrl = null;
+    let previewDebounceTimer = null;
+
+    function closeModal() {
+      overlay.classList.remove('open');
+      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
+      // Clear the preview pane so the injected <style> block (palette CSS) is
+      // removed from the DOM. CSS rules are global — leaving them in a hidden
+      // element would keep modified palette colors applied to gallery thumbnails.
+      if (previewPane) previewPane.innerHTML = '';
+      localFrames = [];
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+    });
+
+    function resetModal() {
+      if (errorsEl) errorsEl.textContent = '';
+      if (previewPane) previewPane.innerHTML = '<p class="ascii-preview-empty">Fill in form fields to preview</p>';
+      if (previewPlay) previewPlay.disabled = true;
+      if (previewStatus) previewStatus.textContent = '';
+      if (paletteRowsEl) paletteRowsEl.innerHTML = '';
+      if (framesCount) framesCount.textContent = '';
+      if (framesTextarea) framesTextarea.value = '';
+      localFrames = [];
+    }
+
+    function openModal(mode, animName, variantSize) {
+      modalMode = mode;
+      modalName = animName || '';
+      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
+      resetModal();
+
+      if (mode === 'create') {
+        if (titleEl) titleEl.textContent = 'New Animation';
+        if (nameInput) { nameInput.value = ''; nameInput.disabled = false; }
+        if (sizeInput) sizeInput.value = '';
+        if (colsInput) colsInput.value = '80';
+        if (rowsInput) rowsInput.value = '24';
+        if (fpsInput) fpsInput.value = '12';
+        updatePreviewAspectRatio();
+      } else {
+        if (titleEl) titleEl.textContent = `Edit: ${animName}`;
+        if (nameInput) { nameInput.value = animName; nameInput.disabled = true; }
+        if (sizeInput) sizeInput.value = variantSize || '';
+        if (colsInput) colsInput.value = '80';
+        if (rowsInput) rowsInput.value = '24';
+        if (fpsInput) fpsInput.value = '12';
+
+        const metaP = fetch(`/api/ascii/animations/${encodeURIComponent(animName)}`)
+          .then(r => r.json())
+          .then(variants => {
+            const v = variantSize
+              ? variants.find(vv => vv.size === variantSize)
+              : variants[0];
+            if (!v) return;
+            if (sizeInput) sizeInput.value = v.size || variantSize || '';
+            if (colsInput) colsInput.value = v.cols || 80;
+            if (rowsInput) rowsInput.value = v.rows || 24;
+            if (fpsInput) fpsInput.value = v.fps || 12;
+            if (v.palette) {
+              Object.entries(v.palette).forEach(([cls, color]) => addPaletteRow(cls, color));
+            }
+          })
+          .catch(() => {});
+
+        if (variantSize) {
+          const framesP = fetch(`/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`)
+            .then(r => r.json())
+            .then(frames => {
+              localFrames = frames;
+              if (framesTextarea) framesTextarea.value = JSON.stringify(frames);
+              if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
+              if (previewStatus) previewStatus.textContent = `${frames.length} frames`;
+            })
+            .catch(() => {});
+
+          // Wait for BOTH palette and frames before enabling play and rendering preview.
+          // This prevents the palette race where fetchPreview fires before palette rows are populated.
+          Promise.all([metaP, framesP]).then(() => {
+            if (previewPlay && localFrames.length > 0) previewPlay.disabled = false;
+            updatePreviewAspectRatio();
+            schedulePreview();
+          });
+        }
+      }
+
+      overlay.classList.add('open');
+    }
+
+    // Expose globally so buttons in the template can call it
+    window.openAsciiModal = openModal;
+
+    // New animation buttons
+    document.querySelectorAll('.ascii-new-btn').forEach(btn => {
+      btn.addEventListener('click', () => openModal('create'));
+    });
+
+    // Card-level edit buttons (edit first/only variant)
+    document.querySelectorAll('.ascii-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openModal('edit', btn.dataset.name, btn.dataset.size);
+      });
+    });
+
+    // Variant-level edit buttons
+    document.querySelectorAll('.ascii-edit-variant-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openModal('edit', btn.dataset.name, btn.dataset.size);
+      });
+    });
+
+    // Delete buttons
+    document.querySelectorAll('.ascii-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.name;
+        if (!confirm(`Delete animation "${name}" and all its variants?`)) return;
+        fetch(`/api/ascii/animations/${encodeURIComponent(name)}`, { method: 'DELETE' })
+          .then(r => {
+            if (r.status === 204 || r.ok) {
+              const card = document.querySelector(`.ascii-card[data-name="${CSS.escape(name)}"]`);
+              if (card) card.remove();
+              showToast(`Deleted "${name}"`, { type: 'success' });
+            } else {
+              return r.json().then(data => { throw new Error(data.error || 'Delete failed'); });
+            }
+          })
+          .catch(err => showToast(err.message, { type: 'error' }));
+      });
+    });
+
+    // Palette editor
+
+    // Convert any valid CSS color string to #rrggbb so <input type="color"> can use it.
+    // A single reused 1×1 canvas is enough — the browser normalizes ctx.fillStyle
+    // to #rrggbb for any solid CSS color (rgb(), named, hsl, short hex, etc.).
+    const _colorCtx = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 1;
+      return c.getContext('2d');
+    })();
+
+    function colorToHex(color) {
+      if (!color) return '#000000';
+      try {
+        _colorCtx.fillStyle = '#000000'; // reset so invalid input doesn't inherit previous
+        _colorCtx.fillStyle = color;
+        const v = _colorCtx.fillStyle; // browser-normalized
+        if (/^#[0-9a-f]{6}$/i.test(v)) return v;
+        // rgba(r,g,b,a) — strip alpha channel
+        const m = v.match(/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (m) return '#' + [m[1], m[2], m[3]].map(n => parseInt(n, 10).toString(16).padStart(2, '0')).join('');
+      } catch {}
+      return '#000000';
+    }
+
+    function addPaletteRow(cls, color) {
+      const hex = colorToHex(color);
+      const row = document.createElement('div');
+      row.className = 'ascii-palette-row';
+      row.innerHTML = `
+        <input type="text" class="app-input ascii-palette-class" placeholder="class-name" value="${escapeHtml(cls || '')}">
+        <input type="color" class="ascii-palette-color" value="${hex}">
+        <button class="ascii-palette-remove" type="button" title="Remove">&times;</button>
+      `;
+      row.querySelector('.ascii-palette-remove').addEventListener('click', () => row.remove());
+      if (paletteRowsEl) paletteRowsEl.appendChild(row);
+    }
+
+    if (paletteAddBtn) paletteAddBtn.addEventListener('click', () => addPaletteRow('', '#ffffff'));
+
+    function getPalette() {
+      const palette = {};
+      if (!paletteRowsEl) return palette;
+      paletteRowsEl.querySelectorAll('.ascii-palette-row').forEach(row => {
+        const cls = row.querySelector('.ascii-palette-class')?.value.trim();
+        const color = row.querySelector('.ascii-palette-color')?.value;
+        if (cls) palette[cls] = color;
+      });
+      return palette;
+    }
+
+    // Frames tabs
+    document.querySelectorAll('.ascii-frames-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.ascii-frames-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const panel = tab.dataset.tab;
+        const pastePanel = document.getElementById('ascii-frames-paste');
+        const filePanel = document.getElementById('ascii-frames-file');
+        if (pastePanel) pastePanel.style.display = panel === 'paste' ? '' : 'none';
+        if (filePanel) filePanel.style.display = panel === 'file' ? '' : 'none';
+      });
+    });
+
+    // Textarea frames input
+    if (framesTextarea) {
+      framesTextarea.addEventListener('input', () => {
+        try {
+          const frames = JSON.parse(framesTextarea.value);
+          if (Array.isArray(frames)) {
+            localFrames = frames;
+            if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
+            if (previewPlay) previewPlay.disabled = frames.length === 0;
+            schedulePreview();
+          }
+        } catch {
+          if (framesCount) framesCount.textContent = 'invalid JSON';
+        }
+      });
+    }
+
+    // File drop zone
+    if (fileBtn) fileBtn.addEventListener('click', () => fileInput?.click());
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) readFramesFile(fileInput.files[0]);
+      });
+    }
+    if (fileDrop) {
+      fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('drag-over'); });
+      fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('drag-over'));
+      fileDrop.addEventListener('drop', e => {
+        e.preventDefault();
+        fileDrop.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) readFramesFile(file);
+      });
+    }
+
+    function readFramesFile(file) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const frames = JSON.parse(ev.target.result);
+          if (Array.isArray(frames)) {
+            localFrames = frames;
+            if (framesTextarea) framesTextarea.value = JSON.stringify(frames);
+            if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
+            if (previewPlay) previewPlay.disabled = frames.length === 0;
+            schedulePreview();
+          }
+        } catch {
+          if (framesCount) framesCount.textContent = 'invalid JSON';
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // Update preview pane aspect-ratio based on cols × CHAR_W / rows × CHAR_H.
+    function updatePreviewAspectRatio() {
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      const ratio = (cols * 0.6) / (rows * 1.0);
+      if (previewPane) previewPane.style.aspectRatio = ratio.toFixed(3);
+    }
+
+    // Live preview (debounced 300ms)
+    [nameInput, sizeInput, colsInput, rowsInput, fpsInput].forEach(el => {
+      if (el) el.addEventListener('input', schedulePreview);
+    });
+    if (paletteRowsEl) paletteRowsEl.addEventListener('input', schedulePreview);
+    // Keep aspect ratio live as cols/rows are typed.
+    [colsInput, rowsInput].forEach(el => {
+      if (el) el.addEventListener('input', updatePreviewAspectRatio);
+    });
+
+    function schedulePreview() {
+      clearTimeout(previewDebounceTimer);
+      previewDebounceTimer = setTimeout(fetchPreview, 300);
+    }
+
+    function fetchPreview() {
+      if (localFrames.length === 0 || !previewPane) return;
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      const fps = parseInt(fpsInput?.value, 10) || 12;
+      const name = nameInput?.value.trim() || 'preview';
+      const size = sizeInput?.value.trim() || '1x1';
+      const palette = getPalette();
+
+      // Stop any running preview controller before replacing the HTML.
+      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
+      if (previewPlay) { previewPlay.textContent = '▶ Play'; }
+
+      fetch('/api/ascii/animations/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, size, cols, rows, fps, palette, frames: [localFrames[0]] })
+      })
+        .then(r => r.json())
+        .then(data => {
+          previewPane.innerHTML = data.html;
+          // Do NOT call initAsciiAnimationForCanvas here — that would auto-fetch
+          // server frames and add its own <pre> elements, conflicting with the
+          // Play button's local-frames animation.  Only font-scaling is needed.
+          const canvas = previewPane.querySelector('.ascii-canvas');
+          if (canvas) {
+            const cols2 = parseInt(canvas.dataset.asciiCols, 10) || 40;
+            const rows2 = parseInt(canvas.dataset.asciiRows, 10) || 20;
+            const CHAR_W = 0.6;
+            const CHAR_H = 1.0;
+            const ro = new ResizeObserver(entries => {
+              for (const entry of entries) {
+                const { width, height } = entry.contentRect;
+                const fw = width / (cols2 * CHAR_W);
+                const fh = height / (rows2 * CHAR_H);
+                canvas.style.fontSize = Math.floor(Math.min(fw, fh)) + 'px';
+              }
+            });
+            ro.observe(canvas);
+          }
+          updatePreviewAspectRatio();
+        })
+        .catch(() => {});
+    }
+
+    // Preview play/pause using local frames array
+    if (previewPlay) {
+      previewPlay.addEventListener('click', () => {
+        if (localFrames.length === 0) return;
+
+        if (previewCtrl) {
+          // Stop: cancel animation, strip extra pres, show frame 0.
+          previewCtrl.stop();
+          previewCtrl = null;
+          previewPlay.textContent = '▶ Play';
+          if (previewStatus) previewStatus.textContent = `${localFrames.length} frames`;
+          const canvas = previewPane?.querySelector('.ascii-canvas');
+          if (canvas) {
+            const all = [...canvas.querySelectorAll('.ascii-frame')];
+            all.forEach((p, i) => { if (i > 0) p.remove(); });
+            if (all[0]) all[0].hidden = false;
+          }
+          return;
+        }
+
+        const canvas = previewPane?.querySelector('.ascii-canvas');
+        if (!canvas) {
+          // No preview rendered yet — fetch first frame then start.
+          fetchPreview();
+          // Re-trigger play after preview renders (small delay for fetch+render).
+          setTimeout(() => { if (localFrames.length > 0) previewPlay.click(); }, 600);
+          return;
+        }
+
+        const fps = parseInt(fpsInput?.value, 10) || 12;
+
+        // Clear any leftover extra pres from a previous play session to
+        // avoid duplicates, then rebuild cleanly from localFrames.
+        const existingPres = [...canvas.querySelectorAll('.ascii-frame')];
+        existingPres.forEach((p, i) => { if (i > 0) p.remove(); });
+        const frame0 = canvas.querySelector('.ascii-frame');
+
+        const pres = [];
+        localFrames.forEach((html, i) => {
+          let pre;
+          if (i === 0 && frame0) {
+            pre = frame0;
+            pre.hidden = false;
+          } else {
+            pre = document.createElement('pre');
+            pre.className = 'ascii-frame';
+            pre.hidden = true;
+            pre.innerHTML = html;
+            canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
+          }
+          pres.push(pre);
+        });
+
+        previewCtrl = new AsciiAnimController(canvas, pres, fps);
+        previewCtrl.start();
+        previewPlay.textContent = '⏸ Pause';
+        if (previewStatus) previewStatus.textContent = `playing · ${localFrames.length} frames · ${fps}fps`;
+      });
+    }
+
+    // Validation
+    function validate() {
+      const name = nameInput?.value.trim() || '';
+      const size = sizeInput?.value.trim() || '';
+      const cols = parseInt(colsInput?.value, 10);
+      const rows = parseInt(rowsInput?.value, 10);
+      const fps = parseInt(fpsInput?.value, 10);
+      if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) return 'Name must be non-empty and contain only letters, numbers, hyphens, and underscores';
+      if (!size || !/^\d+x\d+$/.test(size)) return 'Size must be in format NxN (e.g. 2x1)';
+      if (!cols || cols < 1) return 'Cols must be a positive integer';
+      if (!rows || rows < 1) return 'Rows must be a positive integer';
+      if (!fps || fps < 1 || fps > 60) return 'FPS must be between 1 and 60';
+      if (localFrames.length === 0) return 'At least one frame is required';
+      return null;
+    }
+
+    // Save
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        const err = validate();
+        if (err) { if (errorsEl) errorsEl.textContent = err; return; }
+        if (errorsEl) errorsEl.textContent = '';
+
+        const name = nameInput?.value.trim();
+        const size = sizeInput?.value.trim();
+        const cols = parseInt(colsInput?.value, 10);
+        const rows = parseInt(rowsInput?.value, 10);
+        const fps = parseInt(fpsInput?.value, 10);
+        const palette = getPalette();
+        const isCreate = modalMode === 'create';
+        const url = isCreate ? '/api/ascii/animations' : `/api/ascii/animations/${encodeURIComponent(modalName)}`;
+        const method = isCreate ? 'POST' : 'PUT';
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+
+        fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, size, cols, rows, fps, palette, frames: localFrames })
+        })
+          .then(r => {
+            if (r.ok || r.status === 201) return r.json();
+            return r.json().then(data => { throw new Error(data.error || 'Save failed'); });
+          })
+          .then(() => {
+            closeModal();
+            showToast(isCreate ? `Created "${name}"` : `Updated "${name}"`, { type: 'success' });
+            setTimeout(() => window.location.reload(), 400);
+          })
+          .catch(err => {
+            if (errorsEl) errorsEl.textContent = err.message;
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          });
+      });
+    }
   }
 
   // ── Sortable tables with pagination ────────────────────

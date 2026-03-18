@@ -26,6 +26,24 @@ type VariantMeta struct {
 	FPS  int    `json:"fps"`
 }
 
+// AnimationSummary groups animation metadata with first-frame thumbnails for gallery rendering.
+type AnimationSummary struct {
+	Name     string           `json:"name"`
+	Source   string           `json:"source,omitempty"`
+	Variants []VariantSummary `json:"variants"`
+}
+
+// VariantSummary is a lightweight descriptor for one size variant, including
+// the first frame for server-rendered thumbnails.
+type VariantSummary struct {
+	Size       string            `json:"size"`
+	Cols       int               `json:"cols"`
+	Rows       int               `json:"rows"`
+	FPS        int               `json:"fps"`
+	Palette    map[string]string `json:"palette,omitempty"`
+	FirstFrame string            `json:"first_frame"`
+}
+
 // AnimationVariant is a fully-loaded variant, including frame data.
 type AnimationVariant struct {
 	Name       string            `json:"name"`
@@ -58,6 +76,9 @@ type Event struct {
 type Store interface {
 	// List returns metadata for all known animations (no frame data).
 	List(ctx context.Context) ([]AnimationMeta, error)
+
+	// ListSummaries returns animation metadata with first frames for gallery rendering.
+	ListSummaries(ctx context.Context) ([]AnimationSummary, error)
 
 	// Get returns all loaded variants for the named animation.
 	Get(ctx context.Context, name string) ([]AnimationVariant, error)

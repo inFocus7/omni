@@ -240,6 +240,17 @@ func main() {
 		}
 	})
 
+	r.GET("/ascii", func(c *gin.Context) {
+		summaries, err := st.ListSummaries(c.Request.Context())
+		if err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to list ascii summaries")
+			return
+		}
+		if err := render(c, "ascii_page.tmpl", gin.H{"Animations": summaries}); err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "failed to render ascii page")
+		}
+	})
+
 	r.GET("/settings", func(c *gin.Context) {
 		section := c.DefaultQuery("section", "general")
 

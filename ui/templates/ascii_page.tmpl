@@ -1,0 +1,161 @@
+{{define "title"}}ascii · OMNI{{end}}
+
+{{define "body"}}
+    <header class="site-header">
+        <a href="/" class="back-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+            </svg>
+            OMNI
+        </a>
+        <p class="plugin-label" style="margin: 0;">
+            <a href="/plugins" style="color: inherit; text-decoration: none;">Plugins</a> <span class="breadcrumb-sep">/</span>
+            <svg class="plugin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M7 8h2l1 4 1-4h2M15 8v8M7 16h3"/>
+            </svg>
+            <span class="title-text">ASCII</span>
+        </p>
+        <a href="/settings" class="back-link">settings</a>
+    </header>
+    <main class="plugins">
+        <div class="plugin">
+
+            <div class="ascii-toolbar">
+                <input class="ascii-search app-input" placeholder="search animations…" aria-label="Search animations">
+                <select class="ascii-size-filter" aria-label="Filter by size">
+                    <option value="">all sizes</option>
+                </select>
+                <button class="ascii-new-btn">+ New animation</button>
+            </div>
+
+            {{if .Animations}}
+            <div class="ascii-gallery">
+                {{range .Animations}}
+                {{$animName := .Name}}
+                {{$isRemote := .Source}}
+                <div class="ascii-card" data-name="{{.Name}}">
+                    <div class="ascii-card-header">
+                        <span class="ascii-card-name">{{.Name}}</span>
+                        {{if .Source}}<span class="ascii-card-badge">remote</span>{{end}}
+                        {{if not .Source}}
+                        <div class="ascii-card-actions">
+                            <button class="ascii-edit-btn" data-name="{{.Name}}" data-size="{{if .Variants}}{{(index .Variants 0).Size}}{{end}}">edit</button>
+                            <button class="ascii-delete-btn" data-name="{{.Name}}">delete</button>
+                        </div>
+                        {{end}}
+                    </div>
+                    <div class="ascii-card-variants">
+                        {{range .Variants}}
+                        <div class="ascii-card-variant" data-name="{{$animName}}" data-size="{{.Size}}" data-fps="{{.FPS}}">
+                            {{paletteCSS .Palette}}
+                            <div class="ascii-card-thumb"
+                                 data-ascii-cols="{{.Cols}}"
+                                 data-ascii-rows="{{.Rows}}">
+                                <pre class="ascii-frame">{{safeHTML .FirstFrame}}</pre>
+                            </div>
+                            <div class="ascii-card-meta">{{.Size}} · {{.Cols}}×{{.Rows}} @ {{.FPS}}fps</div>
+                            {{if not $isRemote}}
+                            <div class="ascii-card-variant-actions">
+                                <button class="ascii-card-play">▶</button>
+                                <button class="ascii-edit-variant-btn" data-name="{{$animName}}" data-size="{{.Size}}">edit</button>
+                            </div>
+                            {{else}}
+                            <div class="ascii-card-variant-actions">
+                                <button class="ascii-card-play">▶</button>
+                            </div>
+                            {{end}}
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="ascii-empty">
+                <p>No animations yet.</p>
+                <button class="ascii-new-btn">+ New animation</button>
+            </div>
+            {{end}}
+
+        </div>
+    </main>
+
+    <!-- ASCII CRUD Modal -->
+    <div class="ascii-modal-overlay" id="ascii-modal-overlay">
+        <div class="ascii-modal">
+            <div class="ascii-modal-header">
+                <span class="ascii-modal-title" id="ascii-modal-title">New Animation</span>
+                <button class="ascii-modal-close" id="ascii-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="ascii-modal-body">
+                <div class="ascii-modal-form">
+                    <label>
+                        Name
+                        <input type="text" class="app-input" id="ascii-form-name" placeholder="my-animation" autocomplete="off">
+                    </label>
+                    <label>
+                        Size
+                        <input type="text" class="app-input" id="ascii-form-size" placeholder="2x1" autocomplete="off">
+                    </label>
+                    <div class="ascii-form-row">
+                        <label>
+                            Cols
+                            <input type="number" class="app-input" id="ascii-form-cols" min="1" value="80">
+                        </label>
+                        <label>
+                            Rows
+                            <input type="number" class="app-input" id="ascii-form-rows" min="1" value="24">
+                        </label>
+                        <label>
+                            FPS
+                            <input type="number" class="app-input" id="ascii-form-fps" min="1" max="60" value="12">
+                        </label>
+                    </div>
+
+                    <div class="ascii-palette-editor">
+                        <div class="ascii-palette-header">
+                            <span class="ascii-palette-label">Palette</span>
+                            <button class="ascii-palette-add" id="ascii-palette-add" type="button">+ Add color</button>
+                        </div>
+                        <div id="ascii-palette-rows"></div>
+                    </div>
+
+                    <div class="ascii-frames-input">
+                        <div class="ascii-frames-tabs">
+                            <button class="ascii-frames-tab active" data-tab="paste" type="button">Paste JSON</button>
+                            <button class="ascii-frames-tab" data-tab="file" type="button">File</button>
+                        </div>
+                        <div id="ascii-frames-paste" class="ascii-frames-panel">
+                            <textarea class="app-input ascii-frames-textarea" id="ascii-form-frames" placeholder='["&lt;span&gt;frame 0&lt;/span&gt;", "&lt;span&gt;frame 1&lt;/span&gt;"]' spellcheck="false"></textarea>
+                        </div>
+                        <div id="ascii-frames-file" class="ascii-frames-panel" style="display:none">
+                            <div class="ascii-file-drop" id="ascii-file-drop">
+                                Drop .json file here or
+                                <button class="ascii-file-btn" id="ascii-file-btn" type="button">browse</button>
+                                <input type="file" id="ascii-file-input" accept=".json" style="display:none">
+                            </div>
+                        </div>
+                        <div class="ascii-frames-count" id="ascii-frames-count"></div>
+                    </div>
+                </div>
+
+                <div class="ascii-modal-preview">
+                    <div class="ascii-preview-label">Preview</div>
+                    <div class="ascii-preview-pane" id="ascii-preview-pane">
+                        <p class="ascii-preview-empty">Fill in form fields to preview</p>
+                    </div>
+                    <div class="ascii-preview-controls">
+                        <button class="ascii-preview-play" id="ascii-preview-play" type="button" disabled>▶ Play</button>
+                        <span class="ascii-preview-status" id="ascii-preview-status"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="ascii-modal-footer">
+                <span class="ascii-modal-errors" id="ascii-modal-errors"></span>
+                <button class="ascii-modal-cancel" id="ascii-modal-cancel" type="button">Cancel</button>
+                <button class="ascii-modal-save" id="ascii-modal-save" type="button">Save</button>
+            </div>
+        </div>
+    </div>
+{{end}}

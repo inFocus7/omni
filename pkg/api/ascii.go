@@ -27,6 +27,7 @@ func NewAsciiAPI(st store.Store, reg *widgets.Registry, cache *sync.Map) *AsciiA
 
 // RegisterRoutes mounts the ASCII CRUD routes on r.
 func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
+	r.GET("/api/ascii/summaries", h.ListSummaries)
 	r.GET("/api/ascii/animations", h.List)
 	r.GET("/api/ascii/animations/:name", h.Get)
 	r.POST("/api/ascii/animations", h.Create)
@@ -40,6 +41,16 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 type animationRequest struct {
 	store.AnimationVariant
 	Frames []string `json:"frames"`
+}
+
+// ListSummaries returns animation metadata with first frames for gallery rendering.
+func (h *AsciiAPI) ListSummaries(c *gin.Context) {
+	summaries, err := h.store.ListSummaries(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, summaries)
 }
 
 // List returns metadata for all animations.

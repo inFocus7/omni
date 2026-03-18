@@ -108,6 +108,26 @@ func funcMap() template.FuncMap {
 			}
 			return "repo"
 		},
+
+		// safeHTML marks a string as safe HTML, bypassing template escaping.
+		// Only use for trusted content stored in the database.
+		"safeHTML": func(s string) template.HTML {
+			return template.HTML(s)
+		},
+
+		// paletteCSS builds a <style> block from a map of CSS class names to colors.
+		"paletteCSS": func(palette map[string]string) template.HTML {
+			if len(palette) == 0 {
+				return ""
+			}
+			var b strings.Builder
+			b.WriteString("<style>")
+			for class, color := range palette {
+				fmt.Fprintf(&b, ".%s{color:%s}", template.HTMLEscapeString(class), template.HTMLEscapeString(color))
+			}
+			b.WriteString("</style>")
+			return template.HTML(b.String())
+		},
 	}
 }
 

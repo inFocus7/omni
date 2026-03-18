@@ -127,6 +127,92 @@ func TestEventCarriesFirstFrameAndGzip(t *testing.T) {
 	}
 }
 
+// TestListSummaries verifies ListSummaries returns summaries with first frames and palettes.
+func TestListSummaries(t *testing.T) {
+	st, err := OpenSQLite(":memory:", nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Empty DB: returns empty slice.
+	summaries, err := st.ListSummaries(ctx)
+	if err != nil {
+		t.Fatalf("ListSummaries empty: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Fatalf("expected 0 summaries, got %d", len(summaries))
+	}
+
+	// Put two variants for the same animation.
+	frames := []string{"<span>frame0</span>", "<span>frame1</span>"}
+	gz, first, err := CompressFrames(frames)
+	if err != nil {
+		t.Fatalf("CompressFrames: %v", err)
+	}
+	if err := st.Put(ctx, AnimationVariant{
+		Name:       "demo",
+		Size:       "1x1",
+		Cols:       80,
+		Rows:       24,
+		FPS:        12,
+		Palette:    map[string]string{"red": "#ff0000"},
+		FirstFrame: first,
+		FramesGzip: gz,
+	}); err != nil {
+		t.Fatalf("put 1x1: %v", err)
+	}
+	gz2, first2, err := CompressFrames([]string{"<span>frameA</span>"})
+	if err != nil {
+		t.Fatalf("CompressFrames 2x1: %v", err)
+	}
+	if err := st.Put(ctx, AnimationVariant{
+		Name:       "demo",
+		Size:       "2x1",
+		Cols:       160,
+		Rows:       24,
+		FPS:        24,
+		FirstFrame: first2,
+		FramesGzip: gz2,
+	}); err != nil {
+		t.Fatalf("put 2x1: %v", err)
+	}
+
+	summaries, err = st.ListSummaries(ctx)
+	if err != nil {
+		t.Fatalf("ListSummaries: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 animation, got %d", len(summaries))
+	}
+	anim := summaries[0]
+	if anim.Name != "demo" {
+		t.Errorf("Name: want %q, got %q", "demo", anim.Name)
+	}
+	if len(anim.Variants) != 2 {
+		t.Fatalf("expected 2 variants, got %d", len(anim.Variants))
+	}
+	v1 := anim.Variants[0]
+	if v1.Size != "1x1" {
+		t.Errorf("v1.Size: want %q, got %q", "1x1", v1.Size)
+	}
+	if v1.FirstFrame != first {
+		t.Errorf("v1.FirstFrame: want %q, got %q", first, v1.FirstFrame)
+	}
+	if v1.Palette["red"] != "#ff0000" {
+		t.Errorf("v1.Palette[red]: want #ff0000, got %q", v1.Palette["red"])
+	}
+	v2 := anim.Variants[1]
+	if v2.Size != "2x1" {
+		t.Errorf("v2.Size: want %q, got %q", "2x1", v2.Size)
+	}
+	if v2.FirstFrame != first2 {
+		t.Errorf("v2.FirstFrame: want %q, got %q", first2, v2.FirstFrame)
+	}
+}
+
 // TestPutRejectsEmptyFramesGzip verifies that Put returns an error when
 // FramesGzip is not set, catching callers that forget CompressFrames.
 func TestPutRejectsEmptyFramesGzip(t *testing.T) {
