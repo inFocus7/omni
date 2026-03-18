@@ -125,11 +125,11 @@
                         Name
                         <input type="text" class="app-input" id="ascii-form-name" placeholder="my-animation" autocomplete="off">
                     </label>
-                    <label>
-                        Size
-                        <input type="text" class="app-input" id="ascii-form-size" placeholder="2x1" autocomplete="off">
-                    </label>
                     <div class="ascii-form-row">
+                        <label>
+                            Size
+                            <input type="text" class="app-input" id="ascii-form-size" placeholder="2x1" autocomplete="off">
+                        </label>
                         <label>
                             Cols
                             <input type="number" class="app-input" id="ascii-form-cols" min="1" value="80">
@@ -149,7 +149,7 @@
                             <span class="ascii-palette-label">Palette</span>
                             <button class="ascii-palette-add" id="ascii-palette-add" type="button">+ Add color</button>
                         </div>
-                        <div id="ascii-palette-rows"></div>
+                        <div id="ascii-palette-rows" class="ascii-palette-rows-grid"></div>
                     </div>
 
                     <div class="ascii-frames-input">
@@ -171,8 +171,7 @@
                     </div>
                 </div>
 
-                <div class="ascii-modal-preview">
-                    <div class="ascii-preview-label">Preview</div>
+                <div class="ascii-modal-preview" id="ascii-modal-preview">
                     <div class="ascii-preview-pane" id="ascii-preview-pane">
                         <p class="ascii-preview-empty">Fill in form fields to preview</p>
                     </div>
@@ -183,6 +182,7 @@
                 </div>
             </div>
             <div class="ascii-modal-footer">
+                <button class="ascii-preview-toggle" id="ascii-preview-toggle" type="button">Preview</button>
                 <span class="ascii-modal-errors" id="ascii-modal-errors"></span>
                 <button class="ascii-modal-cancel" id="ascii-modal-cancel" type="button">Cancel</button>
                 <button class="ascii-modal-save" id="ascii-modal-save" type="button">Save</button>

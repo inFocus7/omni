@@ -1323,6 +1323,8 @@
     const previewPane = document.getElementById('ascii-preview-pane');
     const previewPlay = document.getElementById('ascii-preview-play');
     const previewStatus = document.getElementById('ascii-preview-status');
+    const previewToggleBtn = document.getElementById('ascii-preview-toggle');
+    const previewSection = document.getElementById('ascii-modal-preview');
 
     let modalMode = 'create';
     let modalName = '';
@@ -1337,6 +1339,7 @@
       // removed from the DOM. CSS rules are global — leaving them in a hidden
       // element would keep modified palette colors applied to gallery thumbnails.
       if (previewPane) previewPane.innerHTML = '';
+      hidePreview();
       localFrames = [];
     }
 
@@ -1347,6 +1350,26 @@
       if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
     });
 
+    if (previewToggleBtn && previewSection) {
+      previewToggleBtn.addEventListener('click', () => {
+        const isVisible = previewSection.classList.contains('visible');
+        if (isVisible) {
+          if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; if (previewPlay) previewPlay.textContent = '▶ Play'; }
+          hidePreview();
+        } else {
+          previewSection.classList.add('visible');
+          previewToggleBtn.textContent = 'Hide Preview';
+          previewToggleBtn.classList.add('active');
+          if (localFrames.length > 0) schedulePreview();
+        }
+      });
+    }
+
+    function hidePreview() {
+      if (previewSection) previewSection.classList.remove('visible');
+      if (previewToggleBtn) { previewToggleBtn.textContent = 'Preview'; previewToggleBtn.classList.remove('active'); }
+    }
+
     function resetModal() {
       if (errorsEl) errorsEl.textContent = '';
       if (previewPane) previewPane.innerHTML = '<p class="ascii-preview-empty">Fill in form fields to preview</p>';
@@ -1355,6 +1378,7 @@
       if (paletteRowsEl) paletteRowsEl.innerHTML = '';
       if (framesCount) framesCount.textContent = '';
       if (framesTextarea) framesTextarea.value = '';
+      hidePreview();
       localFrames = [];
     }
 
