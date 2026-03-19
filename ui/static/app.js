@@ -1423,6 +1423,8 @@
     const exportPackName = document.getElementById('ascii-export-pack-name');
     const exportPackVersion = document.getElementById('ascii-export-pack-version');
     const exportPackAuthor = document.getElementById('ascii-export-pack-author');
+    const exportPackDescription = document.getElementById('ascii-export-pack-description');
+    const exportPackLicense = document.getElementById('ascii-export-pack-license');
     const exportErrors = document.getElementById('ascii-export-errors');
 
     let localAnimations = [];
@@ -1443,7 +1445,7 @@
           const sizes = anim.variants?.map(v => v.size).join(' · ') || '';
           const label = document.createElement('label');
           label.className = 'ascii-export-item';
-          label.innerHTML = `<input type="checkbox" value="${escapeHtml(anim.name)}" checked> <span class="ascii-export-item-name">${escapeHtml(anim.name)}</span> <span class="ascii-export-item-sizes">${escapeHtml(sizes)}</span>`;
+          label.innerHTML = `<input type="checkbox" class="app-checkbox" value="${escapeHtml(anim.name)}" checked> <span class="ascii-export-item-name">${escapeHtml(anim.name)}</span> <span class="ascii-export-item-sizes">${escapeHtml(sizes)}</span>`;
           exportList.appendChild(label);
         });
       }
@@ -1490,9 +1492,11 @@
         exportErrors.textContent = '';
 
         const body = {
-          name: exportPackName?.value || 'export',
-          version: exportPackVersion?.value || '1.0.0',
           author: exportPackAuthor?.value || '',
+          name: exportPackName?.value || 'export',
+          description: exportPackDescription?.value || '',
+          version: exportPackVersion?.value || '1.0.0',
+          license: exportPackLicense?.value || '',
           animations: checked,
         };
 
@@ -1563,13 +1567,15 @@
     const opDel = document.getElementById('ascii-op-del');
     const opLeft = document.getElementById('ascii-op-left');
     const opRight = document.getElementById('ascii-op-right');
-    const toolsEl = document.getElementById('ascii-tools');
+    const toolsEl = document.getElementById('ascii-tools'); // the tool strip
     const toolChar = document.getElementById('ascii-tool-char');
     const toolClass = document.getElementById('ascii-tool-class');
-    const toolInputs = document.getElementById('ascii-tool-inputs');
-    const onionLabel = document.getElementById('ascii-onion-label');
-    const onionSkinChk = document.getElementById('ascii-onion-skin');
-    const editModeBtn = document.getElementById('ascii-edit-mode');
+    const asciiToolCursorBtn = document.getElementById('ascii-tool-cursor');
+    const asciiToolPencilBtn = document.getElementById('ascii-tool-pencil');
+    const asciiToolOnionBtn = document.getElementById('ascii-tool-onion');
+    const asciiToolFlyout = document.getElementById('ascii-tool-flyout');
+    const asciiFlyoutChar = document.getElementById('ascii-flyout-char');
+    const asciiSwatchRow = document.getElementById('ascii-swatch-row');
     const resizeHandle = document.getElementById('ascii-modal-resize-handle');
     const sidebar = modal?.querySelector('.ascii-modal-sidebar');
     const fitBtn = document.getElementById('ascii-fit-btn');
@@ -1594,7 +1600,7 @@
     let isPainting = false;
     let gridRenderTimer = null;
     let onionSkinEnabled = false;
-    let editMode = false;
+    let activeTool = 'cursor'; // 'cursor' | 'pencil'
 
     // ── Drag resize handle ───────────────────────────────
     if (resizeHandle && sidebar && modal) {
@@ -1809,6 +1815,31 @@
           }
         });
       }
+      rebuildSwatches();
+    }
+
+    function rebuildSwatches() {
+      if (!asciiSwatchRow) return;
+      asciiSwatchRow.innerHTML = '';
+      const currentCls = toolClass?.value || '';
+      if (paletteRowsEl) {
+        paletteRowsEl.querySelectorAll('.ascii-palette-row').forEach(row => {
+          const cls = row.querySelector('.ascii-palette-class')?.value.trim();
+          const color = row.querySelector('.ascii-palette-color')?.value || '#ffffff';
+          if (!cls) return;
+          const btn = document.createElement('button');
+          btn.className = 'ascii-swatch';
+          btn.type = 'button';
+          btn.title = cls;
+          btn.style.setProperty('--swatch-color', color);
+          btn.classList.toggle('active', currentCls === cls);
+          btn.addEventListener('click', () => {
+            if (toolClass) toolClass.value = cls;
+            rebuildSwatches();
+          });
+          asciiSwatchRow.appendChild(btn);
+        });
+      }
     }
 
     // ── Client-side preview rendering ────────────────────
@@ -1945,7 +1976,7 @@
       currentFrameIndex = Math.max(0, Math.min(n, localFrames.length - 1));
       renderFrameLocally(currentFrameIndex);
       updateFrameCounter();
-      if (editMode) {
+      if (activeTool === 'pencil') {
         buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
       }
     }
@@ -2072,7 +2103,7 @@
 
     // Re-align whenever the preview pane itself changes size (window resize, sidebar drag, etc.)
     if (previewPane) {
-      new ResizeObserver(() => { if (editMode) alignGridOverlay(); }).observe(previewPane);
+      new ResizeObserver(() => { if (activeTool === 'pencil') alignGridOverlay(); }).observe(previewPane);
     }
 
     function buildGridOverlay(cols, rows) {
@@ -2132,7 +2163,9 @@
           const picked = currentGrid[r]?.[c];
           if (picked) {
             if (toolChar) toolChar.value = picked.ch === ' ' ? ' ' : picked.ch;
+            if (asciiFlyoutChar) asciiFlyoutChar.textContent = toolChar?.value || ' ';
             if (toolClass) toolClass.value = picked.cls || '';
+            rebuildSwatches();
           }
           return;
         }
@@ -2148,32 +2181,46 @@
     }
     document.addEventListener('mouseup', () => { isPainting = false; });
 
-    if (onionSkinChk) onionSkinChk.addEventListener('change', () => {
-      onionSkinEnabled = onionSkinChk.checked;
-      if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
-    });
-
-    function setEditMode(on) {
-      editMode = on;
-      if (editModeBtn) editModeBtn.classList.toggle('active', on);
-      if (toolInputs) toolInputs.style.display = on ? '' : 'none';
-      if (onionLabel) onionLabel.style.display = on ? '' : 'none';
-      if (on) {
+    function setActiveTool(tool) {
+      activeTool = tool;
+      const isPencil = tool === 'pencil';
+      if (asciiToolCursorBtn) asciiToolCursorBtn.classList.toggle('active', !isPencil);
+      if (asciiToolPencilBtn) asciiToolPencilBtn.classList.toggle('active', isPencil);
+      if (asciiToolFlyout) asciiToolFlyout.style.display = isPencil ? '' : 'none';
+      if (isPencil) {
         buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
       } else {
         if (gridOverlay) { gridOverlay.style.display = 'none'; gridOverlay.innerHTML = ''; }
       }
     }
 
-    if (editModeBtn) editModeBtn.addEventListener('click', () => setEditMode(!editMode));
+    if (asciiToolCursorBtn) asciiToolCursorBtn.addEventListener('click', () => setActiveTool('cursor'));
+    if (asciiToolPencilBtn) asciiToolPencilBtn.addEventListener('click', () => {
+      if (activeTool === 'pencil') {
+        // Already in pencil mode — toggle the picker flyout without leaving draw mode
+        if (asciiToolFlyout) asciiToolFlyout.style.display = asciiToolFlyout.style.display === 'none' ? '' : 'none';
+      } else {
+        setActiveTool('pencil');
+      }
+    });
+
+    if (asciiToolOnionBtn) asciiToolOnionBtn.addEventListener('click', () => {
+      onionSkinEnabled = !onionSkinEnabled;
+      asciiToolOnionBtn.classList.toggle('active', onionSkinEnabled);
+      if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+    });
+
+    // Flyout char display: click to focus hidden input
+    if (asciiFlyoutChar) asciiFlyoutChar.addEventListener('click', () => toolChar?.focus());
 
     if (toolChar) {
       // Auto-select on focus so typing replaces the existing char rather than appending.
       toolChar.addEventListener('focus', () => toolChar.select());
-      // Clamp to 1 codepoint after each keystroke (maxlength="2" exists for multi-byte chars).
+      // Clamp to 1 codepoint after each keystroke; sync display span.
       toolChar.addEventListener('input', () => {
         const codepoints = Array.from(toolChar.value);
         if (codepoints.length > 1) toolChar.value = codepoints[codepoints.length - 1];
+        if (asciiFlyoutChar) asciiFlyoutChar.textContent = toolChar.value || ' ';
       });
     }
 
@@ -2268,7 +2315,7 @@
       if (!el) return;
       el.addEventListener('input', () => {
         if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
-        if (editMode) {
+        if (activeTool === 'pencil') {
           buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
         }
       });
@@ -2286,13 +2333,13 @@
           confirmedRows = newRows;
           currentGrid = null;
           syncTimeline();
-          if (editMode) buildGridOverlay(newCols, newRows);
+          if (activeTool === 'pencil') buildGridOverlay(newCols, newRows);
         };
         const revertResize = () => {
           if (colsInput) colsInput.value = confirmedCols;
           if (rowsInput) rowsInput.value = confirmedRows;
           renderFrameLocally(currentFrameIndex);
-          if (editMode) buildGridOverlay(confirmedCols, confirmedRows);
+          if (activeTool === 'pencil') buildGridOverlay(confirmedCols, confirmedRows);
         };
         if (wouldTruncate(newCols, newRows)) {
           showConfirm(
@@ -2314,8 +2361,8 @@
       if (isPlaying) togglePlay();
       if (playRafId) cancelAnimationFrame(playRafId);
       if (previewRo) { previewRo.disconnect(); previewRo = null; }
-      editMode = false;
-      if (editModeBtn) editModeBtn.classList.remove('active');
+      activeTool = 'cursor';
+      if (asciiToolFlyout) asciiToolFlyout.style.display = 'none';
       overlay.classList.remove('open');
       if (modal) modal.classList.remove('editor-active');
       // Clear preview pane so injected <style> palette block is removed (CSS rules are global)
@@ -2356,11 +2403,11 @@
       currentGrid = null;
       isPlaying = false;
       onionSkinEnabled = false;
-      editMode = false;
-      if (onionSkinChk) onionSkinChk.checked = false;
-      if (editModeBtn) editModeBtn.classList.remove('active');
-      if (toolInputs) toolInputs.style.display = 'none';
-      if (onionLabel) onionLabel.style.display = 'none';
+      activeTool = 'cursor';
+      if (asciiToolCursorBtn) asciiToolCursorBtn.classList.remove('active');
+      if (asciiToolPencilBtn) asciiToolPencilBtn.classList.remove('active');
+      if (asciiToolOnionBtn) asciiToolOnionBtn.classList.remove('active');
+      if (asciiToolFlyout) asciiToolFlyout.style.display = 'none';
     }
 
     function openModal(mode, animName, variantSize) {

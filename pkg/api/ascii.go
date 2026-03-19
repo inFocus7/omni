@@ -67,10 +67,12 @@ type SkippedAnimation struct {
 
 // exportRequest is the HTTP request body for POST /api/ascii/export.
 type exportRequest struct {
-	Name       string   `json:"name"`
-	Version    string   `json:"version"`
-	Author     string   `json:"author"`
-	Animations []string `json:"animations"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Author      string   `json:"author"`
+	Description string   `json:"description"`
+	License     string   `json:"license"`
+	Animations  []string `json:"animations"`
 }
 
 // animationRequest is the HTTP request body for Create and Update.
@@ -526,10 +528,12 @@ func (h *AsciiAPI) Export(c *gin.Context) {
 			animNames[i] = a.name
 		}
 		packJSON := store.PackJSON{
-			Name:       req.Name,
-			Version:    req.Version,
-			Author:     req.Author,
-			Animations: animNames,
+			Name:        req.Name,
+			Version:     req.Version,
+			Author:      req.Author,
+			Description: req.Description,
+			License:     req.License,
+			Animations:  animNames,
 		}
 		packJSONBytes, err := json.Marshal(packJSON)
 		if err != nil {

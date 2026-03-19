@@ -1256,6 +1256,63 @@ a:hover {
     background: var(--surface-2);
 }
 
+/* ── Custom checkbox ─────────────────────────────────────── */
+
+.app-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    min-width: 1rem;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-xs);
+    background: var(--surface);
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.12s, background 0.12s;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.app-checkbox:hover {
+    border-color: rgba(255,255,255,0.22);
+}
+
+.app-checkbox:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.app-checkbox:checked::after {
+    content: '';
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 7px;
+    height: 4px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: translate(-50%, -65%) rotate(-45deg);
+}
+
+.app-checkbox:indeterminate {
+    background: var(--surface-2);
+    border-color: rgba(255,255,255,0.22);
+}
+
+.app-checkbox:indeterminate::after {
+    content: '';
+    display: block;
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 50%;
+    height: 1.5px;
+    background: var(--text-2);
+    transform: translateY(-50%);
+}
+
 /* ── Table pagination ────────────────────────────────────── */
 
 .table-pagination {
@@ -3185,112 +3242,145 @@ a:hover {
 
 /* ── Canvas toolbar (Edit / Onion skin — above the preview pane) ── */
 
-.ascii-canvas-toolbar {
+/* Canvas wrapper: sizing context for absolutely-positioned strip + flyout */
+.ascii-canvas-wrapper {
+    position: relative;
+    display: inline-block;
+    line-height: 0; /* collapse phantom space below inline-block children */
+}
+
+/* Tool strip: thin icon column pinned to the left edge of the canvas */
+.ascii-tool-strip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 32px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.6rem;
-    padding: 0.3rem 0.5rem;
-    background: color-mix(in srgb, var(--surface) 60%, var(--bg) 40%);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    width: 100%;
+    padding: 4px 0;
+    gap: 2px;
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    border-right: 1px solid var(--border);
+    z-index: 10;
     box-sizing: border-box;
-    flex-wrap: wrap;
 }
 
-.ascii-canvas-toolbar-left {
+.ascii-tool-btn {
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--text-2);
+    cursor: pointer;
+    padding: 0;
     flex-shrink: 0;
+    transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 
-/* Tool inputs pushed to the trailing edge */
-.ascii-canvas-toolbar .ascii-tool-row {
-    margin-left: auto;
-    flex-wrap: nowrap;
+.ascii-tool-btn:hover {
+    color: var(--text);
+    background: var(--surface-2, rgba(255,255,255,0.06));
+    border-color: var(--border);
 }
 
-.ascii-canvas-toolbar .ascii-tool-row label {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 52px;
-}
-
-.ascii-edit-mode-btn.active {
+.ascii-tool-btn.active {
     color: var(--bg);
     background: var(--accent);
     border-color: transparent;
 }
 
-.ascii-tool-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+.ascii-tool-strip-sep {
+    width: 16px;
+    height: 1px;
+    background: var(--border);
+    flex-shrink: 0;
+    margin: 2px 0;
 }
 
-.ascii-tool-row label {
+/* Tool flyout: floats to the right of the strip when pencil is active */
+.ascii-tool-flyout {
+    position: absolute;
+    left: 36px; /* strip (32px) + 4px gap */
+    top: 8px;
+    z-index: 10;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    padding: 0.45rem 0.5rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.8125rem;
-    color: var(--text-2);
-    flex: 1;
+    gap: 0.4rem;
+    min-width: 110px;
 }
 
-.ascii-tool-char {
+/* Large char display — click to edit */
+.ascii-flyout-char {
     font-family: var(--font-mono);
+    font-size: 1.35rem;
+    line-height: 1;
     text-align: center;
-}
-
-/* Onion skin toggle */
-.ascii-tool-toggle {
+    color: var(--text);
+    cursor: text;
+    padding: 0.2rem 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    user-select: none;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    color: var(--text-2);
-    cursor: pointer;
-    user-select: none;
+    justify-content: center;
+    min-height: 2rem;
 }
 
-.ascii-toggle-input {
+.ascii-flyout-char:hover {
+    border-color: var(--accent);
+}
+
+/* Hidden char input — focused when user clicks the flyout-char span */
+.ascii-tool-char {
     position: absolute;
     opacity: 0;
-    width: 0;
-    height: 0;
+    width: 1px;
+    height: 1px;
     pointer-events: none;
 }
 
-.ascii-tool-toggle-track {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    width: 2rem;
-    height: 1.1rem;
-    background: var(--border-2);
-    border-radius: 999px;
+/* Swatch row */
+.ascii-swatch-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    min-height: 8px; /* keeps flyout stable when palette is empty */
+}
+
+/* Individual palette swatch */
+.ascii-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    border: 2px solid transparent;
+    background-color: var(--swatch-color, var(--text));
+    cursor: pointer;
+    padding: 0;
     flex-shrink: 0;
-    transition: background 0.15s;
+    transition: border-color 0.1s;
 }
 
-.ascii-tool-toggle-track:has(.ascii-toggle-input:checked) {
-    background: var(--accent);
+.ascii-swatch:hover {
+    border-color: var(--text-2);
 }
 
-.ascii-toggle-thumb {
-    position: absolute;
-    left: 2px;
-    width: calc(1.1rem - 4px);
-    height: calc(1.1rem - 4px);
-    background: #fff;
-    border-radius: 50%;
-    transition: left 0.15s;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-}
-
-.ascii-tool-toggle-track:has(.ascii-toggle-input:checked) .ascii-toggle-thumb {
-    left: calc(2rem - 1.1rem + 2px);
+.ascii-swatch.active {
+    border-color: var(--text);
+    outline: 1px solid var(--text);
+    outline-offset: 1px;
 }
 
 /* ── Import details/summary ──────────────────────────────── */
@@ -3410,7 +3500,6 @@ details[open] .ascii-import-summary::before {
 /* ── Import result banner ────────────────────────────────── */
 
 .ascii-import-result {
-    display: flex;
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
@@ -3420,6 +3509,10 @@ details[open] .ascii-import-summary::before {
     font-size: 0.8125rem;
     color: var(--text-2);
     margin-bottom: 0.75rem;
+}
+
+.ascii-import-result:not([hidden]) {
+    display: flex;
 }
 
 .ascii-import-result.error {
@@ -3487,11 +3580,11 @@ details[open] .ascii-import-summary::before {
     font-size: 0.8125rem;
     color: var(--text-2);
     cursor: pointer;
-    padding-bottom: 0.5rem;
+    padding: 0.3rem 0.5rem 0.6rem;
     border-bottom: 1px solid var(--border-2);
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.625rem;
     user-select: none;
 }
 
@@ -3504,10 +3597,23 @@ details[open] .ascii-import-summary::before {
 .ascii-export-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.625rem;
     cursor: pointer;
     font-size: 0.8125rem;
     user-select: none;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+.ascii-export-item:hover {
+    background: var(--surface-2);
+}
+
+.ascii-export-item:has(input:checked) {
+    background: rgba(230, 51, 41, 0.07);
+    border-color: rgba(230, 51, 41, 0.18);
 }
 
 .ascii-export-item-name {

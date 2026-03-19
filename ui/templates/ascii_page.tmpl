@@ -133,15 +133,17 @@
             </div>
             <div class="ascii-export-body">
                 <label class="ascii-export-select-all">
-                    <input type="checkbox" id="ascii-export-select-all"> Select all
+                    <input type="checkbox" class="app-checkbox" id="ascii-export-select-all"> Select all
                 </label>
                 <div class="ascii-export-list" id="ascii-export-list">
                     <!-- populated by JS from /api/ascii/animations -->
                 </div>
                 <div class="ascii-export-pack-meta" id="ascii-export-pack-meta" style="display:none">
-                    <label>Pack name<input type="text" class="app-input" id="ascii-export-pack-name" placeholder="my-pack"></label>
-                    <label>Version<input type="text" class="app-input" id="ascii-export-pack-version" value="1.0.0"></label>
                     <label>Author<input type="text" class="app-input" id="ascii-export-pack-author" placeholder="username"></label>
+                    <label>Pack name<input type="text" class="app-input" id="ascii-export-pack-name" placeholder="my-pack"></label>
+                    <label>Description<input type="text" class="app-input" id="ascii-export-pack-description" placeholder="A short description"></label>
+                    <label>Version<input type="text" class="app-input" id="ascii-export-pack-version" value="1.0.0"></label>
+                    <label>License<input type="text" class="app-input" id="ascii-export-pack-license" placeholder="MIT"></label>
                 </div>
             </div>
             <div class="ascii-modal-footer">
@@ -207,36 +209,36 @@
                 <!-- RIGHT EDITOR AREA -->
                 <div class="ascii-modal-editor">
                     <div class="ascii-editor-content">
-                    <!-- Canvas toolbar: edit mode & onion skin — proximate to the canvas they affect -->
-                    <div class="ascii-canvas-toolbar" id="ascii-tools" style="display:none">
-                        <div class="ascii-canvas-toolbar-left">
-                            <button class="ascii-timeline-btn ascii-edit-mode-btn" id="ascii-edit-mode" type="button" title="Toggle grid editor — click cells in the preview to paint">&#x270E; Edit</button>
-                            <label class="ascii-tool-toggle" id="ascii-onion-label" style="display:none">
-                                <span class="ascii-tool-toggle-track">
-                                    <input type="checkbox" id="ascii-onion-skin" class="ascii-toggle-input">
-                                    <span class="ascii-toggle-thumb"></span>
-                                </span>
-                                Onion skin
-                            </label>
-                        </div>
-                        <div class="ascii-tool-row" id="ascii-tool-inputs" style="display:none">
-                            <label>
-                                Char
-                                <input type="text" class="app-input ascii-tool-char" id="ascii-tool-char" maxlength="2" value=" ">
-                            </label>
-                            <label>
-                                Class
-                                <select class="app-input ascii-tool-class" id="ascii-tool-class">
-                                    <option value="">(none)</option>
-                                </select>
-                            </label>
-                        </div>
-                    </div>
+                    <!-- Canvas wrapper: sizing context for absolutely-positioned tool strip + flyout -->
+                    <div class="ascii-canvas-wrapper">
                     <!-- Preview pane with grid overlay -->
                     <div class="ascii-preview-pane" id="ascii-preview-pane">
                         <p class="ascii-preview-empty">Add a blank frame to begin</p>
                         <div class="ascii-grid-overlay" id="ascii-grid-overlay" style="display:none"></div>
                     </div>
+                    <!-- Tool strip: thin column on left edge, visible when frames are loaded -->
+                    <div class="ascii-tool-strip" id="ascii-tools" style="display:none">
+                        <button class="ascii-tool-btn" id="ascii-tool-cursor" type="button" title="Select">
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M5.5 3.5l13 8.5-6.5 1-3.5 6.5z"/></svg>
+                        </button>
+                        <button class="ascii-tool-btn" id="ascii-tool-pencil" type="button" title="Paint">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
+                        <button class="ascii-tool-btn" id="ascii-tool-onion" type="button" title="Onion skin">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                    </div>
+                    <!-- Tool flyout: char + palette swatches, shown when pencil is active -->
+                    <div class="ascii-tool-flyout" id="ascii-tool-flyout" style="display:none">
+                        <span class="ascii-flyout-char" id="ascii-flyout-char" title="Click to edit character"> </span>
+                        <input type="text" id="ascii-tool-char" class="ascii-tool-char" maxlength="2" value=" " aria-label="Paint character">
+                        <div class="ascii-swatch-row" id="ascii-swatch-row"></div>
+                        <select id="ascii-tool-class" class="ascii-tool-class" aria-hidden="true" style="display:none">
+                            <option value="">(none)</option>
+                        </select>
+                    </div>
+                    </div><!-- /.ascii-canvas-wrapper -->
 
                     <!-- Timeline transport -->
                     <div class="ascii-timeline" id="ascii-timeline" style="display:none">
