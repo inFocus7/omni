@@ -126,6 +126,40 @@ visible: 1 + 2 + 14 + 2 + 1 = 20 ✓
 
 ---
 
+## Background Rule
+
+**Plain spaces are free. Never span them unless you want a visible colored fill.**
+
+```
+" "                              ← free, costs nothing, renders as empty
+"<span class="bg"> </span>"     ← costs ~24 bytes, adds a DOM node
+```
+
+Unspanned spaces are the single biggest efficiency win. A typical animation frame is 40–60% spaces — leaving them unspanned can halve the span count.
+
+**When background color IS intentional**: define a `bg` (or any name) palette class, use it on spaces. `validate.py` will not flag this — it's structurally valid. Just confirm the user explicitly asked for it.
+
+---
+
+## Drawing Efficiency
+
+How you arrange colors in frames directly affects file size and render performance. The renderer RLE-encodes consecutive same-class characters into one `<span>` automatically — so your job is to make runs as long as possible.
+
+### What makes runs long (good)
+- Solid horizontal bands of one color: `<span class="c">@@@@@@@@@@@@</span>` (1 span, 12 chars)
+- Large color blocks with clean edges
+- Few total colors (3–5 is ideal)
+
+### What makes runs short (expensive)
+- Alternating colors per character: each char gets its own span
+- Diagonal or scattered color patterns
+- Many colors with small regions
+
+### Rule of thumb
+Design the color layout first as broad regions, then fill in detail. Think of it like painting with a wide brush — fine detail can always be added, but it has a cost.
+
+---
+
 ## Common Mistakes
 
 ### 1. Wrong line width

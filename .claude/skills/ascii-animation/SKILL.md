@@ -152,6 +152,56 @@ Frame string: `"          \n  <span class=\"hi\">hello</span>    \n          "`
 
 ---
 
+## Background Rule
+
+Plain spaces `" "` are **free** — they cost zero bytes, need no span, and are invisible. This is the default for all empty cells.
+
+**Never span spaces unless the user explicitly asks for a colored background fill.** Spanned spaces are the #1 source of span bloat. Every unneeded background span wastes ~24 bytes per character and adds DOM nodes the browser must render on every frame update.
+
+```
+Good:  "     <span class="hi">HELLO</span>     "   ← spaces outside span = free
+Bad:   "<span class="bg">     </span><span class="hi">HELLO</span><span class="bg">     </span>"  ← spans on spaces = waste
+```
+
+**Optional background color**: if the user explicitly wants a colored fill behind the art, define a `bg` palette class and wrap spaces in `<span class="bg"> </span>`. This is intentional and valid — `validate.py` will not flag it. Just confirm the user asked for it.
+
+---
+
+## Drawing Efficiency
+
+These principles apply **while generating frames**. Following them produces smaller files and faster rendering without sacrificing visual quality.
+
+**1. Group same-color characters together horizontally.**
+Consecutive characters of the same palette class collapse into one `<span>` (run-length encoding). Design color regions as horizontal blocks:
+- `<span class="mid">############</span>` = 1 span for 12 chars ✓
+- `<span class="mid">#</span><span class="mid">#</span>...` = 12 spans for 12 chars ✗
+
+**2. Use 3–5 colors unless the design genuinely needs more.**
+Fewer colors = longer runs = fewer spans = smaller file. Before adding a 6th color, ask: does it meaningfully improve the animation, or just add noise?
+
+**3. Prefer wide color regions over fine per-character detail.**
+A full row in one color = 1 span. Alternating colors per character = up to `cols` spans. Match color granularity to what the animation actually needs.
+
+**4. Validate always and review the size analysis.**
+`validate.py` reports exact gzip size, spans/frame, and run length after writing files. If anything is flagged, offer to revise before the user imports. See the Workflow section for threshold guidance.
+
+### Size recommendation thresholds (from validate.py)
+
+| Signal | Recommendation |
+|--------|----------------|
+| Avg spans/frame > 400 | Reduce palette colors |
+| Avg spans/frame > 400 AND FPS > 12 | Reduce colors AND/OR FPS |
+| Avg run length < 3 | Color regions too fragmented — reduce palette or cols×rows |
+| Avg run length < 2 | Severe fragmentation — strongly reduce palette |
+| Background ratio < 20% | Verify background is unspanned; more cells may be left as plain spaces |
+| Overhead ratio > 50% | Tag bytes dominate — reduce palette or unspan more background |
+| Gzip > 500 KB | Reduce FPS, cols×rows, or color count |
+| Gzip 200–500 KB | Review whether smaller settings are acceptable |
+| Frame count > 40 | Consider reducing target FPS (~linear savings) |
+| Palette colors > 8 | Above recommended range — monitor span count |
+
+---
+
 ## Sizing Guide
 
 **Grid constants** (from `app.js`):
@@ -214,7 +264,12 @@ Write `meta.json` and `frames-<size>.json` (and `pack.json` for packs) to the ou
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/validate.py <output-dir>
 ```
-Fix any errors reported, then re-validate until clean.
+Fix any structural errors reported, then re-validate until clean.
+
+After the structural checks, `validate.py` outputs a **size analysis** section with exact gzip size, spans/frame, run length, background ratio, and overhead ratio. Review it:
+- If any ⚠⚠ threshold is flagged: proactively offer a specific adjustment with estimated savings before the user imports. Example: *"Your animation is 340 KB gzipped — would you like me to simplify the palette from 6 to 4 colors (estimated ~40% reduction)?"*
+- If any ⚠ threshold is flagged: mention it and ask whether to proceed or adjust. Example: *"Average run length is 2.1 — color regions are fragmented. Would you like me to redraw with broader color blocks?"*
+- If all metrics are healthy: report the size and proceed.
 
 ### 5. Preview
 ```bash
@@ -224,6 +279,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/preview.py <output-dir>
 ### 6. Report to user
 Tell the user:
 - Where the files were written
+- Gzip size from the validate output
 - How to import: **OMNI → `/ascii` page → Import → Local folder → select the generated folder**
 - On name collision: OMNI will prompt to overwrite
 
