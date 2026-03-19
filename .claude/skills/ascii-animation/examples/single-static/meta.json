@@ -1,0 +1,12 @@
+{
+  "name": "hello",
+  "variants": [
+    {
+      "size": "1x1",
+      "cols": 45,
+      "rows": 22,
+      "fps": 1,
+      "frames_file": "frames-1x1.json"
+    }
+  ]
+}

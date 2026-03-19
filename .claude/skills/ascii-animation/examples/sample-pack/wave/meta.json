@@ -1,0 +1,15 @@
+{
+  "name": "wave",
+  "palette": {
+    "wave": "#4488ff"
+  },
+  "variants": [
+    {
+      "size": "1x1",
+      "cols": 45,
+      "rows": 22,
+      "fps": 6,
+      "frames_file": "frames-1x1.json"
+    }
+  ]
+}
