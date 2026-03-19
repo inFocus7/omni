@@ -59,6 +59,39 @@
     return div.innerHTML;
   }
 
+  // ── Generic confirmation dialog ───────────────────────────────────────────
+  {
+    const overlay = document.getElementById('confirm-overlay');
+    const msgEl   = document.getElementById('confirm-msg');
+    const yesBtn  = document.getElementById('confirm-yes');
+    const noBtn   = document.getElementById('confirm-no');
+    let _onYes = null, _onNo = null;
+
+    window.showConfirm = function(msg, onYes, onNo, { yesLabel = 'Confirm', noLabel = 'Cancel' } = {}) {
+      if (msgEl) msgEl.textContent = msg;
+      if (yesBtn) yesBtn.textContent = yesLabel;
+      if (noBtn) noBtn.textContent = noLabel;
+      _onYes = onYes; _onNo = onNo;
+      if (overlay) overlay.hidden = false;
+    };
+
+    window.dismissConfirm = function() {
+      if (overlay) overlay.hidden = true;
+      _onYes = null; _onNo = null;
+    };
+
+    if (yesBtn) yesBtn.addEventListener('click', () => {
+      const cb = _onYes;
+      dismissConfirm();
+      cb?.();
+    });
+    if (noBtn) noBtn.addEventListener('click', () => {
+      const cb = _onNo;
+      dismissConfirm();
+      cb?.();
+    });
+  }
+
   // Plugin metadata
   const PLUGIN_META = {
     github: {
@@ -247,26 +280,31 @@
     }
   }
 
+  // Font scaling for an ascii canvas. Reads cols/rows from dataset on each resize
+  // so it stays current if the dataset is updated after setup. Returns the observer
+  // so callers that need to disconnect it (e.g. the editor modal) can do so.
+  function setupAsciiCanvasFontScaling(canvas) {
+    const CHAR_W = 0.6;
+    const CHAR_H = 1.0;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        const cols = parseInt(canvas.dataset.asciiCols, 10) || 40;
+        const rows = parseInt(canvas.dataset.asciiRows, 10) || 20;
+        canvas.style.fontSize = Math.floor(Math.min(width / (cols * CHAR_W), height / (rows * CHAR_H))) + 'px';
+      }
+    });
+    ro.observe(canvas);
+    return ro;
+  }
+
   // Per-canvas setup: font scaling + lazy frame loading + animation start.
   // Called by initAsciiAnimations() and widget picker loadPreview().
   function initAsciiAnimationForCanvas(canvas) {
     const fps = parseInt(canvas.dataset.asciiFps, 10) || 12;
-    const cols = parseInt(canvas.dataset.asciiCols, 10) || 40;
-    const rows = parseInt(canvas.dataset.asciiRows, 10) || 20;
     const framesUrl = canvas.dataset.asciiFramesUrl;
 
-    // Font scaling via ResizeObserver
-    const CHAR_W = 0.6;
-    const CHAR_H = 1.0;
-    const resizeObserver = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        const maxFontW = width / (cols * CHAR_W);
-        const maxFontH = height / (rows * CHAR_H);
-        canvas.style.fontSize = Math.floor(Math.min(maxFontW, maxFontH)) + 'px';
-      }
-    });
-    resizeObserver.observe(canvas);
+    setupAsciiCanvasFontScaling(canvas);
 
     function startController(frames) {
       if (frames.length === 0) return;
@@ -276,38 +314,71 @@
     }
 
     if (framesUrl) {
-      // Lazy-load remaining frames once the widget enters the viewport.
-      const io = new IntersectionObserver((entries, observer) => {
-        if (!entries[0].isIntersecting) return;
-        observer.disconnect();
-        fetch(framesUrl)
-          .then(r => r.json())
-          .then(frameStrings => {
-            // Replace the inline frame 0 pre and append the rest.
-            const inlinePre = canvas.querySelector('.ascii-frame');
-            const allPres = [];
-            frameStrings.forEach((html, i) => {
-              let pre;
-              if (i === 0 && inlinePre) {
-                pre = inlinePre;
-              } else {
-                pre = document.createElement('pre');
-                pre.className = 'ascii-frame';
-                pre.hidden = true;
-                pre.innerHTML = html;
-                canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
-              }
-              allPres.push(pre);
+      // On /ascii gallery: load frames on first click, show frame 0 statically until then.
+      // On the dashboard the canvas has data-ascii-autoplay, so we keep the old viewport behaviour.
+      if (canvas.dataset.asciiAutoplay !== undefined) {
+        // Dashboard: lazy-load on viewport entry and autoplay.
+        const io = new IntersectionObserver((entries, observer) => {
+          if (!entries[0].isIntersecting) return;
+          observer.disconnect();
+          fetch(framesUrl)
+            .then(r => r.json())
+            .then(frameStrings => {
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              const allPres = [];
+              frameStrings.forEach((html, i) => {
+                let pre;
+                if (i === 0 && inlinePre) {
+                  pre = inlinePre;
+                } else {
+                  pre = document.createElement('pre');
+                  pre.className = 'ascii-frame';
+                  pre.hidden = true;
+                  pre.innerHTML = html;
+                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
+                }
+                allPres.push(pre);
+              });
+              startController(allPres);
+            })
+            .catch(() => {
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              if (inlinePre) inlinePre.hidden = false;
             });
-            startController(allPres);
-          })
-          .catch(() => {
-            // Graceful degradation: show frame 0 statically.
-            const inlinePre = canvas.querySelector('.ascii-frame');
-            if (inlinePre) inlinePre.hidden = false;
-          });
-      }, { threshold: 0 });
-      io.observe(canvas);
+        }, { threshold: 0 });
+        io.observe(canvas);
+      } else {
+        // Gallery: show frame 0 statically, fetch + play on first click.
+        let loaded = false;
+        canvas.addEventListener('click', () => {
+          if (loaded) return;
+          loaded = true;
+          fetch(framesUrl)
+            .then(r => r.json())
+            .then(frameStrings => {
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              const allPres = [];
+              frameStrings.forEach((html, i) => {
+                let pre;
+                if (i === 0 && inlinePre) {
+                  pre = inlinePre;
+                } else {
+                  pre = document.createElement('pre');
+                  pre.className = 'ascii-frame';
+                  pre.hidden = true;
+                  pre.innerHTML = html;
+                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
+                }
+                allPres.push(pre);
+              });
+              startController(allPres);
+            })
+            .catch(() => {
+              const inlinePre = canvas.querySelector('.ascii-frame');
+              if (inlinePre) inlinePre.hidden = false;
+            });
+        });
+      }
     } else {
       // Fallback: all frames already inline (e.g. older format).
       const frames = Array.from(canvas.querySelectorAll('.ascii-frame'));
@@ -1016,8 +1087,19 @@
       fetch(`/api/widgets/${encodeURIComponent(id)}/preview?size=${encodeURIComponent(size)}&filter=${encodeURIComponent(f)}`)
         .then(r => r.json())
         .then(data => {
-          previewArea.innerHTML = data.html;
-          // Init ASCII animations in the preview area.
+          // Compute the exact pixel dimensions this widget occupies on the dashboard grid.
+          const GRID_COL_W = 161, GRID_ROW_H = 130, GRID_GAP = 12;
+          const W = data.w || 1, H = data.h || 1;
+          const pxW = W * GRID_COL_W + (W - 1) * GRID_GAP;
+          const pxH = H * GRID_ROW_H + (H - 1) * GRID_GAP;
+          // Wrap in a .widget at true dashboard size so layout + font scaling matches exactly.
+          const wrapper = document.createElement('div');
+          wrapper.className = 'widget';
+          wrapper.style.width = pxW + 'px';
+          wrapper.style.height = pxH + 'px';
+          wrapper.innerHTML = data.html;
+          previewArea.innerHTML = '';
+          previewArea.appendChild(wrapper);
           previewArea.querySelectorAll('.ascii-canvas').forEach(initAsciiAnimationForCanvas);
         })
         .catch(() => {
@@ -1206,7 +1288,7 @@
 
   // ── ASCII Gallery page ──────────────────────────────────
   function initAsciiGallery() {
-    if (!document.querySelector('.ascii-gallery, .ascii-empty')) return;
+    if (!document.querySelector('.ascii-gallery-grid, .ascii-empty')) return;
 
     // Font scaling is handled by CSS container queries on .ascii-card-thumb —
     // no ResizeObserver needed for gallery thumbnails.
@@ -1231,68 +1313,217 @@
       }
     }
 
-    // Play buttons — fetch frames and start animation
-    document.querySelector('.ascii-gallery')?.addEventListener('click', e => {
-      const btn = e.target.closest('.ascii-card-play');
-      if (!btn) return;
-      const variant = btn.closest('.ascii-card-variant');
-      if (!variant) return;
-      const thumb = variant.querySelector('.ascii-card-thumb');
-      if (!thumb) return;
-      const animName = variant.dataset.name;
-      const size = variant.dataset.size;
-      const fps = parseInt(variant.dataset.fps, 10) || 12;
+    // Gallery variant delete buttons
+    document.querySelectorAll('.ascii-delete-variant-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.name;
+        const size = btn.dataset.size;
+        if (!confirm(`Delete variant "${size}" of "${name}"?`)) return;
+        fetch(`/api/ascii/animations/${encodeURIComponent(name)}/${encodeURIComponent(size)}`, { method: 'DELETE' })
+          .then(r => {
+            if (r.status === 204 || r.ok) {
+              const item = document.querySelector(`.ascii-gallery-item[data-name="${CSS.escape(name)}"][data-size="${CSS.escape(size)}"]`);
+              if (item) item.remove();
+              showToast(`Deleted "${name}" (${size})`, { type: 'success' });
+            } else {
+              return r.json().then(data => { throw new Error(data.error || 'Delete failed'); });
+            }
+          })
+          .catch(err => showToast(err.message, { type: 'error' }));
+      });
+    });
 
-      if (btn.dataset.playing === '1') {
-        // Stop
-        const ctrl = thumb._asciiCtrl;
-        if (ctrl) {
-          ctrl.stop();
-          thumb._asciiCtrl = null;
-          // Remove extra frame pres, show first frame
-          const pres = [...thumb.querySelectorAll('.ascii-frame')];
-          pres.forEach((p, i) => { if (i > 0) p.remove(); });
-          if (pres[0]) pres[0].hidden = false;
+    // ── Gallery Import ────────────────────────────────────
+    const importBtn = document.getElementById('ascii-import-btn');
+    const importDropdown = document.getElementById('ascii-import-dropdown');
+    const importFileInput = document.getElementById('ascii-import-file-input');
+    const importResult = document.getElementById('ascii-import-result');
+    const importResultText = document.getElementById('ascii-import-result-text');
+    const importResultClose = document.getElementById('ascii-import-result-close');
+
+    if (importBtn && importDropdown) {
+      importBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        importDropdown.hidden = !importDropdown.hidden;
+      });
+      document.addEventListener('click', () => { importDropdown.hidden = true; });
+      importDropdown.querySelectorAll('.ascii-import-option:not([disabled])').forEach(opt => {
+        opt.addEventListener('click', () => {
+          importDropdown.hidden = true;
+          importFileInput?.click();
+        });
+      });
+    }
+
+    if (importFileInput) {
+      importFileInput.addEventListener('change', async () => {
+        const files = importFileInput.files;
+        if (!files || files.length === 0) return;
+
+        const form = new FormData();
+        for (const file of files) {
+          // Use the relative path as the field name (not filename). Go's multipart
+          // parser sanitizes filenames by stripping directories; field names are preserved.
+          form.append(file.webkitRelativePath || file.name, file);
         }
-        btn.dataset.playing = '0';
-        btn.textContent = '▶';
+
+        try {
+          const res = await fetch('/api/ascii/import', { method: 'POST', body: form });
+          const data = await res.json();
+
+          if (res.status === 409 && data.conflicts?.length > 0) {
+            const names = data.conflicts.join(', ');
+            if (confirm(`These animations already exist: ${names}.\nOverwrite them?`)) {
+              const res2 = await fetch('/api/ascii/import?overwrite=true', { method: 'POST', body: form });
+              const data2 = await res2.json();
+              showImportResult(data2);
+              if (data2.imported?.length > 0) location.reload();
+            }
+          } else if (res.ok) {
+            showImportResult(data);
+            if (data.imported?.length > 0) location.reload();
+          } else {
+            showImportResult({ error: data.error || 'Import failed' });
+          }
+        } catch (err) {
+          showImportResult({ error: 'Import failed: ' + err.message });
+        }
+        importFileInput.value = '';
+      });
+    }
+
+    function showImportResult(data) {
+      if (!importResult || !importResultText) return;
+      let msg = '';
+      if (data.error) {
+        msg = data.error;
+        importResult.classList.add('error');
+      } else {
+        const parts = [];
+        if (data.imported?.length) parts.push(`Imported: ${data.imported.map(a => a.name).join(', ')}`);
+        if (data.skipped?.length) parts.push(`Skipped: ${data.skipped.map(a => `${a.name} (${a.reason})`).join(', ')}`);
+        msg = parts.join(' · ') || 'Nothing imported';
+        importResult.classList.remove('error');
+      }
+      importResultText.textContent = msg;
+      importResult.hidden = false;
+    }
+
+    if (importResultClose) importResultClose.addEventListener('click', () => { importResult.hidden = true; });
+
+    // ── Gallery Export ────────────────────────────────────
+    const galleryExportBtn = document.getElementById('ascii-export-btn');
+    const exportOverlay = document.getElementById('ascii-export-overlay');
+    const exportClose = document.getElementById('ascii-export-close');
+    const exportCancel = document.getElementById('ascii-export-cancel');
+    const exportDownload = document.getElementById('ascii-export-download');
+    const exportList = document.getElementById('ascii-export-list');
+    const exportSelectAll = document.getElementById('ascii-export-select-all');
+    const exportPackMeta = document.getElementById('ascii-export-pack-meta');
+    const exportPackName = document.getElementById('ascii-export-pack-name');
+    const exportPackVersion = document.getElementById('ascii-export-pack-version');
+    const exportPackAuthor = document.getElementById('ascii-export-pack-author');
+    const exportErrors = document.getElementById('ascii-export-errors');
+
+    let localAnimations = [];
+
+    async function openExportModal() {
+      try {
+        const res = await fetch('/api/ascii/animations');
+        const all = await res.json();
+        localAnimations = all.filter(a => !a.source);
+      } catch (err) {
+        showToast('Failed to load animations: ' + err.message, { type: 'error' });
         return;
       }
 
-      btn.textContent = '…';
-      btn.disabled = true;
-
-      fetch(`/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(size)}`)
-        .then(r => r.json())
-        .then(frameStrings => {
-          const inlinePre = thumb.querySelector('.ascii-frame');
-          const allPres = [];
-          frameStrings.forEach((html, i) => {
-            let pre;
-            if (i === 0 && inlinePre) {
-              pre = inlinePre;
-            } else {
-              pre = document.createElement('pre');
-              pre.className = 'ascii-frame';
-              pre.hidden = true;
-              pre.innerHTML = html;
-              thumb.appendChild(pre);
-            }
-            allPres.push(pre);
-          });
-          const ctrl = new AsciiAnimController(thumb, allPres, fps);
-          ctrl.start();
-          thumb._asciiCtrl = ctrl;
-          btn.dataset.playing = '1';
-          btn.textContent = '■';
-          btn.disabled = false;
-        })
-        .catch(() => {
-          btn.textContent = '▶';
-          btn.disabled = false;
-          showToast('Failed to load frames', { type: 'error' });
+      if (exportList) {
+        exportList.innerHTML = '';
+        localAnimations.forEach(anim => {
+          const sizes = anim.variants?.map(v => v.size).join(' · ') || '';
+          const label = document.createElement('label');
+          label.className = 'ascii-export-item';
+          label.innerHTML = `<input type="checkbox" value="${escapeHtml(anim.name)}" checked> <span class="ascii-export-item-name">${escapeHtml(anim.name)}</span> <span class="ascii-export-item-sizes">${escapeHtml(sizes)}</span>`;
+          exportList.appendChild(label);
         });
-    });
+      }
+
+      updateExportPackMeta();
+      if (exportOverlay) exportOverlay.classList.add('open');
+    }
+
+    function updateExportPackMeta() {
+      if (!exportList || !exportPackMeta || !exportSelectAll) return;
+      const checked = exportList.querySelectorAll('input[type=checkbox]:checked');
+      exportPackMeta.style.display = checked.length >= 2 ? '' : 'none';
+      exportSelectAll.checked = checked.length === localAnimations.length;
+      exportSelectAll.indeterminate = checked.length > 0 && checked.length < localAnimations.length;
+    }
+
+    if (galleryExportBtn) galleryExportBtn.addEventListener('click', openExportModal);
+
+    if (exportClose) exportClose.addEventListener('click', () => exportOverlay?.classList.remove('open'));
+    if (exportCancel) exportCancel.addEventListener('click', () => exportOverlay?.classList.remove('open'));
+
+    if (exportOverlay) {
+      exportOverlay.addEventListener('click', (e) => {
+        if (e.target === exportOverlay) exportOverlay.classList.remove('open');
+      });
+    }
+
+    if (exportSelectAll) {
+      exportSelectAll.addEventListener('change', () => {
+        exportList?.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = exportSelectAll.checked; });
+        updateExportPackMeta();
+      });
+    }
+
+    if (exportList) {
+      exportList.addEventListener('change', updateExportPackMeta);
+    }
+
+    if (exportDownload) {
+      exportDownload.addEventListener('click', async () => {
+        if (!exportList || !exportErrors) return;
+        const checked = [...exportList.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+        if (checked.length === 0) { exportErrors.textContent = 'Select at least one animation.'; return; }
+        exportErrors.textContent = '';
+
+        const body = {
+          name: exportPackName?.value || 'export',
+          version: exportPackVersion?.value || '1.0.0',
+          author: exportPackAuthor?.value || '',
+          animations: checked,
+        };
+
+        try {
+          const res = await fetch('/api/ascii/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            exportErrors.textContent = data.error || 'Export failed.';
+            return;
+          }
+
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = (checked.length === 1 ? checked[0] : (body.name || 'export')) + '.zip';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          exportOverlay?.classList.remove('open');
+        } catch (err) {
+          exportErrors.textContent = 'Export failed: ' + err.message;
+        }
+      });
+    }
 
     initAsciiModal();
   }
@@ -1302,6 +1533,7 @@
     const overlay = document.getElementById('ascii-modal-overlay');
     if (!overlay) return;
 
+    const modal = overlay.querySelector('.ascii-modal');
     const closeBtn = document.getElementById('ascii-modal-close');
     const cancelBtn = document.getElementById('ascii-modal-cancel');
     const saveBtn = document.getElementById('ascii-modal-save');
@@ -1313,184 +1545,204 @@
     const colsInput = document.getElementById('ascii-form-cols');
     const rowsInput = document.getElementById('ascii-form-rows');
     const fpsInput = document.getElementById('ascii-form-fps');
-    const framesTextarea = document.getElementById('ascii-form-frames');
     const paletteRowsEl = document.getElementById('ascii-palette-rows');
     const paletteAddBtn = document.getElementById('ascii-palette-add');
-    const fileInput = document.getElementById('ascii-file-input');
-    const fileBtn = document.getElementById('ascii-file-btn');
-    const fileDrop = document.getElementById('ascii-file-drop');
-    const framesCount = document.getElementById('ascii-frames-count');
     const previewPane = document.getElementById('ascii-preview-pane');
-    const previewPlay = document.getElementById('ascii-preview-play');
-    const previewStatus = document.getElementById('ascii-preview-status');
-    const previewToggleBtn = document.getElementById('ascii-preview-toggle');
-    const previewSection = document.getElementById('ascii-modal-preview');
+    const gridOverlay = document.getElementById('ascii-grid-overlay');
+    const timelineEl = document.getElementById('ascii-timeline');
+    const frameSlider = document.getElementById('ascii-frame-slider');
+    const frameCounter = document.getElementById('ascii-frame-counter');
+    const tlFirst = document.getElementById('ascii-tl-first');
+    const tlPrev = document.getElementById('ascii-tl-prev');
+    const tlPlay = document.getElementById('ascii-tl-play');
+    const tlNext = document.getElementById('ascii-tl-next');
+    const tlLast = document.getElementById('ascii-tl-last');
+    const speedSelect = document.getElementById('ascii-speed-select');
+    const opDup = document.getElementById('ascii-op-dup');
+    const opBlank = document.getElementById('ascii-op-blank');
+    const opDel = document.getElementById('ascii-op-del');
+    const opLeft = document.getElementById('ascii-op-left');
+    const opRight = document.getElementById('ascii-op-right');
+    const toolsEl = document.getElementById('ascii-tools');
+    const toolChar = document.getElementById('ascii-tool-char');
+    const toolClass = document.getElementById('ascii-tool-class');
+    const toolInputs = document.getElementById('ascii-tool-inputs');
+    const onionLabel = document.getElementById('ascii-onion-label');
+    const onionSkinChk = document.getElementById('ascii-onion-skin');
+    const editModeBtn = document.getElementById('ascii-edit-mode');
+    const resizeHandle = document.getElementById('ascii-modal-resize-handle');
+    const sidebar = modal?.querySelector('.ascii-modal-sidebar');
+    const fitBtn = document.getElementById('ascii-fit-btn');
+    const fitSuggestionsEl = document.getElementById('ascii-fit-suggestions');
 
     let modalMode = 'create';
     let modalName = '';
     let localFrames = [];
-    let previewCtrl = null;
-    let previewDebounceTimer = null;
+    let confirmedCols = 80;
+    let confirmedRows = 24;
 
-    function closeModal() {
-      overlay.classList.remove('open');
-      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
-      // Clear the preview pane so the injected <style> block (palette CSS) is
-      // removed from the DOM. CSS rules are global — leaving them in a hidden
-      // element would keep modified palette colors applied to gallery thumbnails.
-      if (previewPane) previewPane.innerHTML = '';
-      hidePreview();
-      localFrames = [];
-    }
+    // ── Timeline state ──────────────────────────────────
+    let currentFrameIndex = 0;
+    let isPlaying = false;
+    let playbackSpeed = 1;
+    let playRafId = null;
+    let lastPlayTimestamp = 0;
+    let previewRo = null; // ResizeObserver for font scaling
 
-    if (closeBtn) closeBtn.addEventListener('click', closeModal);
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
-    });
+    // ── Grid editing state ──────────────────────────────
+    let currentGrid = null;
+    let isPainting = false;
+    let gridRenderTimer = null;
+    let onionSkinEnabled = false;
+    let editMode = false;
 
-    if (previewToggleBtn && previewSection) {
-      previewToggleBtn.addEventListener('click', () => {
-        const isVisible = previewSection.classList.contains('visible');
-        if (isVisible) {
-          if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; if (previewPlay) previewPlay.textContent = '▶ Play'; }
-          hidePreview();
-        } else {
-          previewSection.classList.add('visible');
-          previewToggleBtn.textContent = 'Hide Preview';
-          previewToggleBtn.classList.add('active');
-          if (localFrames.length > 0) schedulePreview();
-        }
+    // ── Drag resize handle ───────────────────────────────
+    if (resizeHandle && sidebar && modal) {
+      let isResizing = false, resizeStartX = 0, resizeStartW = 0;
+      resizeHandle.addEventListener('mousedown', e => {
+        isResizing = true;
+        resizeStartX = e.clientX;
+        resizeStartW = sidebar.getBoundingClientRect().width;
+        resizeHandle.classList.add('resizing');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+      });
+      document.addEventListener('mousemove', e => {
+        if (!isResizing) return;
+        const w = Math.max(180, Math.min(520, resizeStartW + (e.clientX - resizeStartX)));
+        modal.querySelector('.ascii-modal-body').style.gridTemplateColumns = `${w}px 5px 1fr`;
+      });
+      document.addEventListener('mouseup', () => {
+        if (!isResizing) return;
+        isResizing = false;
+        resizeHandle.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
       });
     }
 
-    function hidePreview() {
-      if (previewSection) previewSection.classList.remove('visible');
-      if (previewToggleBtn) { previewToggleBtn.textContent = 'Preview'; previewToggleBtn.classList.remove('active'); }
-    }
+    // ── HTML ↔ Grid parsers ──────────────────────────────
 
-    function resetModal() {
-      if (errorsEl) errorsEl.textContent = '';
-      if (previewPane) previewPane.innerHTML = '<p class="ascii-preview-empty">Fill in form fields to preview</p>';
-      if (previewPlay) previewPlay.disabled = true;
-      if (previewStatus) previewStatus.textContent = '';
-      if (paletteRowsEl) paletteRowsEl.innerHTML = '';
-      if (framesCount) framesCount.textContent = '';
-      if (framesTextarea) framesTextarea.value = '';
-      hidePreview();
-      localFrames = [];
-    }
-
-    function openModal(mode, animName, variantSize) {
-      modalMode = mode;
-      modalName = animName || '';
-      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
-      resetModal();
-
-      if (mode === 'create') {
-        if (titleEl) titleEl.textContent = 'New Animation';
-        if (nameInput) { nameInput.value = ''; nameInput.disabled = false; }
-        if (sizeInput) sizeInput.value = '';
-        if (colsInput) colsInput.value = '80';
-        if (rowsInput) rowsInput.value = '24';
-        if (fpsInput) fpsInput.value = '12';
-        updatePreviewAspectRatio();
-      } else {
-        if (titleEl) titleEl.textContent = `Edit: ${animName}`;
-        if (nameInput) { nameInput.value = animName; nameInput.disabled = true; }
-        if (sizeInput) sizeInput.value = variantSize || '';
-        if (colsInput) colsInput.value = '80';
-        if (rowsInput) rowsInput.value = '24';
-        if (fpsInput) fpsInput.value = '12';
-
-        const metaP = fetch(`/api/ascii/animations/${encodeURIComponent(animName)}`)
-          .then(r => r.json())
-          .then(variants => {
-            const v = variantSize
-              ? variants.find(vv => vv.size === variantSize)
-              : variants[0];
-            if (!v) return;
-            if (sizeInput) sizeInput.value = v.size || variantSize || '';
-            if (colsInput) colsInput.value = v.cols || 80;
-            if (rowsInput) rowsInput.value = v.rows || 24;
-            if (fpsInput) fpsInput.value = v.fps || 12;
-            if (v.palette) {
-              Object.entries(v.palette).forEach(([cls, color]) => addPaletteRow(cls, color));
+    function htmlToGrid(frameHtml, cols, rows) {
+      const grid = [];
+      const lines = frameHtml.split('\n');
+      for (let r = 0; r < rows; r++) {
+        const line = lines[r] || '';
+        const cells = [];
+        let currentCls = '';
+        let i = 0;
+        // Walk the line character by character, handling span tags
+        while (i < line.length) {
+          if (line[i] === '<') {
+            // Check for </span>
+            if (line.startsWith('</span>', i)) {
+              currentCls = '';
+              i += 7;
+              continue;
             }
-          })
-          .catch(() => {});
+            // Check for <span class="...">
+            const spanMatch = line.slice(i).match(/^<span class="([^"]*)">/);
+            if (spanMatch) {
+              currentCls = spanMatch[1];
+              i += spanMatch[0].length;
+              continue;
+            }
+            // Unknown tag — skip to closing >
+            const end = line.indexOf('>', i);
+            i = end >= 0 ? end + 1 : line.length;
+            continue;
+          }
+          // Decode common HTML entities
+          if (line[i] === '&') {
+            const semi = line.indexOf(';', i);
+            if (semi >= 0 && semi - i <= 8) {
+              const entity = line.slice(i, semi + 1);
+              let ch = entity;
+              if (entity === '&amp;') ch = '&';
+              else if (entity === '&lt;') ch = '<';
+              else if (entity === '&gt;') ch = '>';
+              else if (entity === '&nbsp;') ch = ' ';
+              else if (entity.startsWith('&#x')) {
+                ch = String.fromCodePoint(parseInt(entity.slice(3, -1), 16));
+              } else if (entity.startsWith('&#')) {
+                ch = String.fromCodePoint(parseInt(entity.slice(2, -1), 10));
+              }
+              if (cells.length < cols) cells.push({ ch, cls: currentCls });
+              i = semi + 1;
+              continue;
+            }
+          }
+          // Regular character — use Array.from for proper Unicode codepoint
+          const cp = Array.from(line.slice(i))[0];
+          if (cells.length < cols) cells.push({ ch: cp, cls: currentCls });
+          i += cp.length;
+        }
+        // Pad row to cols
+        while (cells.length < cols) cells.push({ ch: ' ', cls: '' });
+        grid.push(cells);
+      }
+      // Pad to rows
+      while (grid.length < rows) {
+        grid.push(Array.from({ length: cols }, () => ({ ch: ' ', cls: '' })));
+      }
+      return grid;
+    }
 
-        if (variantSize) {
-          const framesP = fetch(`/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`)
-            .then(r => r.json())
-            .then(frames => {
-              localFrames = frames;
-              if (framesTextarea) framesTextarea.value = JSON.stringify(frames);
-              if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
-              if (previewStatus) previewStatus.textContent = `${frames.length} frames`;
-            })
-            .catch(() => {});
+    function gridToHtml(grid) {
+      return grid.map(row => {
+        let line = '';
+        let i = 0;
+        while (i < row.length) {
+          const cls = row[i].cls;
+          // Find run of same class
+          let j = i + 1;
+          while (j < row.length && row[j].cls === cls) j++;
+          const chars = row.slice(i, j).map(c => escapeHtmlChar(c.ch)).join('');
+          if (cls) {
+            line += `<span class="${escapeHtml(cls)}">${chars}</span>`;
+          } else {
+            line += chars;
+          }
+          i = j;
+        }
+        return line;
+      }).join('\n');
+    }
 
-          // Wait for BOTH palette and frames before enabling play and rendering preview.
-          // This prevents the palette race where fetchPreview fires before palette rows are populated.
-          Promise.all([metaP, framesP]).then(() => {
-            if (previewPlay && localFrames.length > 0) previewPlay.disabled = false;
-            updatePreviewAspectRatio();
-            schedulePreview();
-          });
+    function escapeHtmlChar(ch) {
+      if (ch === '&') return '&amp;';
+      if (ch === '<') return '&lt;';
+      if (ch === '>') return '&gt;';
+      return ch;
+    }
+
+    // ── Frame normalization ──────────────────────────────
+
+    function blankFrame(cols, rows) {
+      return Array.from({ length: rows }, () => ' '.repeat(cols)).join('\n');
+    }
+
+    // Normalize all localFrames to exactly cols×rows by round-tripping through the grid parser.
+    function normalizeFrames(cols, rows) {
+      localFrames = localFrames.map(f => gridToHtml(htmlToGrid(f, cols, rows)));
+    }
+
+    // Returns true if normalizing to newCols×newRows would truncate any existing content.
+    function wouldTruncate(newCols, newRows) {
+      const tmp = document.createElement('span');
+      for (const frame of localFrames) {
+        const lines = frame.split('\n');
+        if (lines.length > newRows) return true;
+        for (const line of lines) {
+          tmp.innerHTML = line;
+          if (Array.from(tmp.textContent).length > newCols) return true;
         }
       }
-
-      overlay.classList.add('open');
+      return false;
     }
 
-    // Expose globally so buttons in the template can call it
-    window.openAsciiModal = openModal;
+    // ── Palette helpers ──────────────────────────────────
 
-    // New animation buttons
-    document.querySelectorAll('.ascii-new-btn').forEach(btn => {
-      btn.addEventListener('click', () => openModal('create'));
-    });
-
-    // Card-level edit buttons (edit first/only variant)
-    document.querySelectorAll('.ascii-edit-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        openModal('edit', btn.dataset.name, btn.dataset.size);
-      });
-    });
-
-    // Variant-level edit buttons
-    document.querySelectorAll('.ascii-edit-variant-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        openModal('edit', btn.dataset.name, btn.dataset.size);
-      });
-    });
-
-    // Delete buttons
-    document.querySelectorAll('.ascii-delete-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const name = btn.dataset.name;
-        if (!confirm(`Delete animation "${name}" and all its variants?`)) return;
-        fetch(`/api/ascii/animations/${encodeURIComponent(name)}`, { method: 'DELETE' })
-          .then(r => {
-            if (r.status === 204 || r.ok) {
-              const card = document.querySelector(`.ascii-card[data-name="${CSS.escape(name)}"]`);
-              if (card) card.remove();
-              showToast(`Deleted "${name}"`, { type: 'success' });
-            } else {
-              return r.json().then(data => { throw new Error(data.error || 'Delete failed'); });
-            }
-          })
-          .catch(err => showToast(err.message, { type: 'error' }));
-      });
-    });
-
-    // Palette editor
-
-    // Convert any valid CSS color string to #rrggbb so <input type="color"> can use it.
-    // A single reused 1×1 canvas is enough — the browser normalizes ctx.fillStyle
-    // to #rrggbb for any solid CSS color (rgb(), named, hsl, short hex, etc.).
     const _colorCtx = (() => {
       const c = document.createElement('canvas');
       c.width = c.height = 1;
@@ -1500,11 +1752,10 @@
     function colorToHex(color) {
       if (!color) return '#000000';
       try {
-        _colorCtx.fillStyle = '#000000'; // reset so invalid input doesn't inherit previous
+        _colorCtx.fillStyle = '#000000';
         _colorCtx.fillStyle = color;
-        const v = _colorCtx.fillStyle; // browser-normalized
+        const v = _colorCtx.fillStyle;
         if (/^#[0-9a-f]{6}$/i.test(v)) return v;
-        // rgba(r,g,b,a) — strip alpha channel
         const m = v.match(/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
         if (m) return '#' + [m[1], m[2], m[3]].map(n => parseInt(n, 10).toString(16).padStart(2, '0')).join('');
       } catch {}
@@ -1520,8 +1771,13 @@
         <input type="color" class="ascii-palette-color" value="${hex}">
         <button class="ascii-palette-remove" type="button" title="Remove">&times;</button>
       `;
-      row.querySelector('.ascii-palette-remove').addEventListener('click', () => row.remove());
+      row.querySelector('.ascii-palette-remove').addEventListener('click', () => {
+        row.remove();
+        rebuildToolClassSelect();
+        if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+      });
       if (paletteRowsEl) paletteRowsEl.appendChild(row);
+      rebuildToolClassSelect();
     }
 
     if (paletteAddBtn) paletteAddBtn.addEventListener('click', () => addPaletteRow('', '#ffffff'));
@@ -1537,202 +1793,642 @@
       return palette;
     }
 
-    // Frames tabs
-    document.querySelectorAll('.ascii-frames-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.ascii-frames-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const panel = tab.dataset.tab;
-        const pastePanel = document.getElementById('ascii-frames-paste');
-        const filePanel = document.getElementById('ascii-frames-file');
-        if (pastePanel) pastePanel.style.display = panel === 'paste' ? '' : 'none';
-        if (filePanel) filePanel.style.display = panel === 'file' ? '' : 'none';
-      });
-    });
-
-    // Textarea frames input
-    if (framesTextarea) {
-      framesTextarea.addEventListener('input', () => {
-        try {
-          const frames = JSON.parse(framesTextarea.value);
-          if (Array.isArray(frames)) {
-            localFrames = frames;
-            if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
-            if (previewPlay) previewPlay.disabled = frames.length === 0;
-            schedulePreview();
+    function rebuildToolClassSelect() {
+      if (!toolClass) return;
+      const current = toolClass.value;
+      toolClass.innerHTML = '<option value="">(none)</option>';
+      if (paletteRowsEl) {
+        paletteRowsEl.querySelectorAll('.ascii-palette-row').forEach(row => {
+          const cls = row.querySelector('.ascii-palette-class')?.value.trim();
+          if (cls) {
+            const opt = document.createElement('option');
+            opt.value = cls;
+            opt.textContent = cls;
+            if (cls === current) opt.selected = true;
+            toolClass.appendChild(opt);
           }
-        } catch {
-          if (framesCount) framesCount.textContent = 'invalid JSON';
-        }
-      });
-    }
-
-    // File drop zone
-    if (fileBtn) fileBtn.addEventListener('click', () => fileInput?.click());
-    if (fileInput) {
-      fileInput.addEventListener('change', () => {
-        if (fileInput.files[0]) readFramesFile(fileInput.files[0]);
-      });
-    }
-    if (fileDrop) {
-      fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('drag-over'); });
-      fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('drag-over'));
-      fileDrop.addEventListener('drop', e => {
-        e.preventDefault();
-        fileDrop.classList.remove('drag-over');
-        const file = e.dataTransfer.files[0];
-        if (file) readFramesFile(file);
-      });
-    }
-
-    function readFramesFile(file) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        try {
-          const frames = JSON.parse(ev.target.result);
-          if (Array.isArray(frames)) {
-            localFrames = frames;
-            if (framesTextarea) framesTextarea.value = JSON.stringify(frames);
-            if (framesCount) framesCount.textContent = `${frames.length} frame${frames.length !== 1 ? 's' : ''}`;
-            if (previewPlay) previewPlay.disabled = frames.length === 0;
-            schedulePreview();
-          }
-        } catch {
-          if (framesCount) framesCount.textContent = 'invalid JSON';
-        }
-      };
-      reader.readAsText(file);
-    }
-
-    // Update preview pane aspect-ratio based on cols × CHAR_W / rows × CHAR_H.
-    function updatePreviewAspectRatio() {
-      const cols = parseInt(colsInput?.value, 10) || 80;
-      const rows = parseInt(rowsInput?.value, 10) || 24;
-      const ratio = (cols * 0.6) / (rows * 1.0);
-      if (previewPane) previewPane.style.aspectRatio = ratio.toFixed(3);
-    }
-
-    // Live preview (debounced 300ms)
-    [nameInput, sizeInput, colsInput, rowsInput, fpsInput].forEach(el => {
-      if (el) el.addEventListener('input', schedulePreview);
-    });
-    if (paletteRowsEl) paletteRowsEl.addEventListener('input', schedulePreview);
-    // Keep aspect ratio live as cols/rows are typed.
-    [colsInput, rowsInput].forEach(el => {
-      if (el) el.addEventListener('input', updatePreviewAspectRatio);
-    });
-
-    function schedulePreview() {
-      clearTimeout(previewDebounceTimer);
-      previewDebounceTimer = setTimeout(fetchPreview, 300);
-    }
-
-    function fetchPreview() {
-      if (localFrames.length === 0 || !previewPane) return;
-      const cols = parseInt(colsInput?.value, 10) || 80;
-      const rows = parseInt(rowsInput?.value, 10) || 24;
-      const fps = parseInt(fpsInput?.value, 10) || 12;
-      const name = nameInput?.value.trim() || 'preview';
-      const size = sizeInput?.value.trim() || '1x1';
-      const palette = getPalette();
-
-      // Stop any running preview controller before replacing the HTML.
-      if (previewCtrl) { previewCtrl.stop(); previewCtrl = null; }
-      if (previewPlay) { previewPlay.textContent = '▶ Play'; }
-
-      fetch('/api/ascii/animations/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, size, cols, rows, fps, palette, frames: [localFrames[0]] })
-      })
-        .then(r => r.json())
-        .then(data => {
-          previewPane.innerHTML = data.html;
-          // Do NOT call initAsciiAnimationForCanvas here — that would auto-fetch
-          // server frames and add its own <pre> elements, conflicting with the
-          // Play button's local-frames animation.  Only font-scaling is needed.
-          const canvas = previewPane.querySelector('.ascii-canvas');
-          if (canvas) {
-            const cols2 = parseInt(canvas.dataset.asciiCols, 10) || 40;
-            const rows2 = parseInt(canvas.dataset.asciiRows, 10) || 20;
-            const CHAR_W = 0.6;
-            const CHAR_H = 1.0;
-            const ro = new ResizeObserver(entries => {
-              for (const entry of entries) {
-                const { width, height } = entry.contentRect;
-                const fw = width / (cols2 * CHAR_W);
-                const fh = height / (rows2 * CHAR_H);
-                canvas.style.fontSize = Math.floor(Math.min(fw, fh)) + 'px';
-              }
-            });
-            ro.observe(canvas);
-          }
-          updatePreviewAspectRatio();
-        })
-        .catch(() => {});
-    }
-
-    // Preview play/pause using local frames array
-    if (previewPlay) {
-      previewPlay.addEventListener('click', () => {
-        if (localFrames.length === 0) return;
-
-        if (previewCtrl) {
-          // Stop: cancel animation, strip extra pres, show frame 0.
-          previewCtrl.stop();
-          previewCtrl = null;
-          previewPlay.textContent = '▶ Play';
-          if (previewStatus) previewStatus.textContent = `${localFrames.length} frames`;
-          const canvas = previewPane?.querySelector('.ascii-canvas');
-          if (canvas) {
-            const all = [...canvas.querySelectorAll('.ascii-frame')];
-            all.forEach((p, i) => { if (i > 0) p.remove(); });
-            if (all[0]) all[0].hidden = false;
-          }
-          return;
-        }
-
-        const canvas = previewPane?.querySelector('.ascii-canvas');
-        if (!canvas) {
-          // No preview rendered yet — fetch first frame then start.
-          fetchPreview();
-          // Re-trigger play after preview renders (small delay for fetch+render).
-          setTimeout(() => { if (localFrames.length > 0) previewPlay.click(); }, 600);
-          return;
-        }
-
-        const fps = parseInt(fpsInput?.value, 10) || 12;
-
-        // Clear any leftover extra pres from a previous play session to
-        // avoid duplicates, then rebuild cleanly from localFrames.
-        const existingPres = [...canvas.querySelectorAll('.ascii-frame')];
-        existingPres.forEach((p, i) => { if (i > 0) p.remove(); });
-        const frame0 = canvas.querySelector('.ascii-frame');
-
-        const pres = [];
-        localFrames.forEach((html, i) => {
-          let pre;
-          if (i === 0 && frame0) {
-            pre = frame0;
-            pre.hidden = false;
-          } else {
-            pre = document.createElement('pre');
-            pre.className = 'ascii-frame';
-            pre.hidden = true;
-            pre.innerHTML = html;
-            canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
-          }
-          pres.push(pre);
         });
+      }
+    }
 
-        previewCtrl = new AsciiAnimController(canvas, pres, fps);
-        previewCtrl.start();
-        previewPlay.textContent = '⏸ Pause';
-        if (previewStatus) previewStatus.textContent = `playing · ${localFrames.length} frames · ${fps}fps`;
+    // ── Client-side preview rendering ────────────────────
+
+    function buildPaletteStyle(palette, scopeId) {
+      const rules = Object.entries(palette)
+        .map(([cls, color]) => `#${scopeId} .${CSS.escape(cls)} { color: ${color}; }`)
+        .join('\n');
+      return rules;
+    }
+
+    function renderFrameLocally(frameIndex) {
+      if (!previewPane || localFrames.length === 0) return;
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      const palette = getPalette();
+      const scopeId = 'ascii-preview-scope';
+
+      // Remove old style
+      const oldStyle = previewPane.querySelector('.ascii-preview-style');
+      if (oldStyle) oldStyle.remove();
+
+      let canvas = previewPane.querySelector('.ascii-canvas');
+      if (!canvas) {
+        // Build the full preview structure
+        previewPane.innerHTML = '';
+        const styleEl = document.createElement('style');
+        styleEl.className = 'ascii-preview-style';
+        styleEl.textContent = buildPaletteStyle(palette, scopeId);
+        previewPane.appendChild(styleEl);
+
+        const wrapper = document.createElement('div');
+        wrapper.id = scopeId;
+        wrapper.className = 'ascii-canvas widget-fill';
+        wrapper.dataset.asciiCols = cols;
+        wrapper.dataset.asciiRows = rows;
+        previewPane.appendChild(wrapper);
+        canvas = wrapper;
+
+        // Re-append grid overlay
+        if (gridOverlay) previewPane.appendChild(gridOverlay);
+
+        // Font scaling ResizeObserver
+        if (previewRo) previewRo.disconnect();
+        previewRo = setupAsciiCanvasFontScaling(canvas);
+      } else {
+        // Update style block + dataset
+        const styleEl = document.createElement('style');
+        styleEl.className = 'ascii-preview-style';
+        styleEl.textContent = buildPaletteStyle(palette, scopeId);
+        previewPane.insertBefore(styleEl, canvas);
+        canvas.dataset.asciiCols = cols;
+        canvas.dataset.asciiRows = rows;
+        // Manually recalculate font size — ResizeObserver only fires on element resize,
+        // not on dataset change, so we need to recompute when cols/rows change.
+        const CHAR_W = 0.6, CHAR_H = 1.0;
+        const { width, height } = canvas.getBoundingClientRect();
+        if (width && height) {
+          const fw = width / (cols * CHAR_W);
+          const fh = height / (rows * CHAR_H);
+          canvas.style.fontSize = Math.floor(Math.min(fw, fh)) + 'px';
+        }
+      }
+
+      // Onion skin
+      const oldOnion = canvas.querySelector('.ascii-onion');
+      if (oldOnion) oldOnion.remove();
+      if (onionSkinEnabled && frameIndex > 0) {
+        const onion = document.createElement('pre');
+        onion.className = 'ascii-frame ascii-onion';
+        onion.innerHTML = localFrames[frameIndex - 1];
+        canvas.insertBefore(onion, canvas.firstChild);
+      }
+
+      // Current frame
+      let pre = canvas.querySelector('.ascii-frame:not(.ascii-onion)');
+      if (!pre) {
+        pre = document.createElement('pre');
+        pre.className = 'ascii-frame';
+        canvas.appendChild(pre);
+      }
+      pre.innerHTML = localFrames[frameIndex];
+
+      updatePreviewAspectRatio();
+      updateFrameCounter();
+    }
+
+    function updatePreviewAspectRatio() {
+      // Aspect ratio is determined by the dashboard widget container shape, not the
+      // character grid. size="WxH" maps to W grid-columns × H grid-rows.
+      // Dashboard: max-width 900px container, padding 1.5rem each side, 5 cols,
+      // gap 0.75rem (12px), row height 130px.
+      const GRID_COL_W = 161; // (900 - 48 - 4*12) / 5
+      const GRID_ROW_H = 130;
+      const GRID_GAP = 12;
+      const sizeVal = sizeInput?.value.trim() || '';
+      const m = sizeVal.match(/^(\d+)x(\d+)$/i);
+      if (m) {
+        const W = parseInt(m[1], 10);
+        const H = parseInt(m[2], 10);
+        const pxW = W * GRID_COL_W + (W - 1) * GRID_GAP;
+        const pxH = H * GRID_ROW_H + (H - 1) * GRID_GAP;
+        if (previewPane) previewPane.style.aspectRatio = (pxW / pxH).toFixed(3);
+      }
+      // If size isn't filled in yet, leave aspect-ratio unchanged.
+    }
+
+    // ── Timeline ─────────────────────────────────────────
+
+    function updateFrameCounter() {
+      if (frameCounter) frameCounter.textContent = `${currentFrameIndex + 1} / ${localFrames.length}`;
+      if (frameSlider) {
+        frameSlider.max = Math.max(0, localFrames.length - 1);
+        frameSlider.value = currentFrameIndex;
+        const maxF = Math.max(1, localFrames.length - 1);
+        frameSlider.style.setProperty('--pct', `${(currentFrameIndex / maxF) * 100}%`);
+      }
+      if (opDel) opDel.disabled = localFrames.length <= 1;
+      if (opLeft) opLeft.disabled = currentFrameIndex === 0;
+      if (opRight) opRight.disabled = currentFrameIndex >= localFrames.length - 1;
+    }
+
+    function syncTimeline() {
+      updateFrameCounter();
+      renderFrameLocally(currentFrameIndex);
+    }
+
+    function goToFrame(n) {
+      // Flush any dirty grid back to localFrames
+      if (currentGrid !== null) {
+        localFrames[currentFrameIndex] = gridToHtml(currentGrid);
+        currentGrid = null;
+      }
+      currentFrameIndex = Math.max(0, Math.min(n, localFrames.length - 1));
+      renderFrameLocally(currentFrameIndex);
+      updateFrameCounter();
+      if (editMode) {
+        buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
+      }
+    }
+
+    function showTimeline() {
+      if (timelineEl) timelineEl.style.display = '';
+      if (toolsEl) toolsEl.style.display = '';
+      if (modal) modal.classList.add('editor-active');
+      rebuildToolClassSelect();
+    }
+
+    function playTick(timestamp) {
+      if (!isPlaying) return;
+      const fps = parseInt(fpsInput?.value, 10) || 12;
+      const interval = 1000 / (fps * playbackSpeed);
+      if (timestamp - lastPlayTimestamp >= interval) {
+        lastPlayTimestamp = timestamp;
+        const next = (currentFrameIndex + 1) % localFrames.length;
+        goToFrame(next);
+      }
+      playRafId = requestAnimationFrame(playTick);
+    }
+
+    function togglePlay() {
+      if (localFrames.length === 0) return;
+      isPlaying = !isPlaying;
+      if (isPlaying) {
+        lastPlayTimestamp = 0;
+        if (tlPlay) { tlPlay.textContent = '⏸'; tlPlay.classList.add('playing'); }
+        playRafId = requestAnimationFrame(playTick);
+      } else {
+        if (playRafId) cancelAnimationFrame(playRafId);
+        if (tlPlay) { tlPlay.innerHTML = '&#x25B6;'; tlPlay.classList.remove('playing'); }
+      }
+    }
+
+    if (tlFirst) tlFirst.addEventListener('click', () => goToFrame(0));
+    if (tlPrev) tlPrev.addEventListener('click', () => goToFrame(currentFrameIndex - 1));
+    if (tlPlay) tlPlay.addEventListener('click', togglePlay);
+    if (tlNext) tlNext.addEventListener('click', () => goToFrame(currentFrameIndex + 1));
+    if (tlLast) tlLast.addEventListener('click', () => goToFrame(localFrames.length - 1));
+    if (frameSlider) frameSlider.addEventListener('input', () => {
+      const val = parseInt(frameSlider.value, 10);
+      const maxF = Math.max(1, parseInt(frameSlider.max, 10));
+      frameSlider.style.setProperty('--pct', `${(val / maxF) * 100}%`);
+      goToFrame(val);
+    });
+    if (speedSelect) speedSelect.addEventListener('change', () => { playbackSpeed = parseFloat(speedSelect.value); });
+
+    // Keyboard shortcuts (when modal open and not in a text input)
+    document.addEventListener('keydown', e => {
+      if (!overlay.classList.contains('open')) return;
+      if (localFrames.length === 0) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goToFrame(currentFrameIndex - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goToFrame(currentFrameIndex + 1); }
+      else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+      else if (e.key === 'Home') { e.preventDefault(); goToFrame(0); }
+      else if (e.key === 'End') { e.preventDefault(); goToFrame(localFrames.length - 1); }
+    });
+
+    // ── Frame operations ─────────────────────────────────
+
+    if (opDup) opDup.addEventListener('click', () => {
+      if (localFrames.length === 0) return;
+      if (currentGrid !== null) { localFrames[currentFrameIndex] = gridToHtml(currentGrid); currentGrid = null; }
+      localFrames.splice(currentFrameIndex + 1, 0, localFrames[currentFrameIndex]);
+      goToFrame(currentFrameIndex + 1);
+      syncTimeline();
+    });
+
+    if (opBlank) opBlank.addEventListener('click', () => {
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      const blank = Array.from({ length: rows }, () => ' '.repeat(cols)).join('\n');
+      localFrames.splice(currentFrameIndex + 1, 0, blank);
+      goToFrame(currentFrameIndex + 1);
+      syncTimeline();
+    });
+
+    if (opDel) opDel.addEventListener('click', () => {
+      if (localFrames.length <= 1) return;
+      localFrames.splice(currentFrameIndex, 1);
+      currentGrid = null;
+      goToFrame(Math.min(currentFrameIndex, localFrames.length - 1));
+      syncTimeline();
+    });
+
+    if (opLeft) opLeft.addEventListener('click', () => {
+      if (currentFrameIndex === 0) return;
+      if (currentGrid !== null) { localFrames[currentFrameIndex] = gridToHtml(currentGrid); currentGrid = null; }
+      [localFrames[currentFrameIndex], localFrames[currentFrameIndex - 1]] =
+        [localFrames[currentFrameIndex - 1], localFrames[currentFrameIndex]];
+      goToFrame(currentFrameIndex - 1);
+      syncTimeline();
+    });
+
+    if (opRight) opRight.addEventListener('click', () => {
+      if (currentFrameIndex >= localFrames.length - 1) return;
+      if (currentGrid !== null) { localFrames[currentFrameIndex] = gridToHtml(currentGrid); currentGrid = null; }
+      [localFrames[currentFrameIndex], localFrames[currentFrameIndex + 1]] =
+        [localFrames[currentFrameIndex + 1], localFrames[currentFrameIndex]];
+      goToFrame(currentFrameIndex + 1);
+      syncTimeline();
+    });
+
+    // ── Grid overlay + painting ───────────────────────────
+
+    // Position the grid overlay to exactly cover the rendered <pre> element.
+    // Called after buildGridOverlay and whenever the pane resizes.
+    function alignGridOverlay() {
+      if (!gridOverlay || !previewPane) return;
+      const canvas = previewPane.querySelector('.ascii-canvas');
+      const pre = canvas?.querySelector('.ascii-frame:not(.ascii-onion)');
+      if (!pre) return;
+      const paneRect = previewPane.getBoundingClientRect();
+      const preRect  = pre.getBoundingClientRect();
+      gridOverlay.style.left   = (preRect.left - paneRect.left) + 'px';
+      gridOverlay.style.top    = (preRect.top  - paneRect.top)  + 'px';
+      gridOverlay.style.width  = preRect.width  + 'px';
+      gridOverlay.style.height = preRect.height + 'px';
+    }
+
+    // Re-align whenever the preview pane itself changes size (window resize, sidebar drag, etc.)
+    if (previewPane) {
+      new ResizeObserver(() => { if (editMode) alignGridOverlay(); }).observe(previewPane);
+    }
+
+    function buildGridOverlay(cols, rows) {
+      if (!gridOverlay) return;
+      gridOverlay.style.display = 'grid';
+      gridOverlay.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      gridOverlay.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      gridOverlay.innerHTML = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'ascii-grid-cell';
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+          gridOverlay.appendChild(cell);
+        }
+      }
+      // Align after the browser has laid out the new font size / frame content.
+      requestAnimationFrame(alignGridOverlay);
+    }
+
+    function paintCell(cellEl) {
+      const r = +cellEl.dataset.row;
+      const c = +cellEl.dataset.col;
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      if (currentGrid === null) currentGrid = htmlToGrid(localFrames[currentFrameIndex], cols, rows);
+      const ch = Array.from(toolChar?.value || ' ')[0] || ' ';
+      const cls = toolClass?.value || '';
+      currentGrid[r][c] = { ch, cls };
+      scheduleGridRender();
+    }
+
+    function scheduleGridRender() {
+      if (gridRenderTimer) return;
+      gridRenderTimer = setTimeout(() => {
+        gridRenderTimer = null;
+        if (currentGrid !== null) {
+          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
+          const canvas = previewPane?.querySelector('.ascii-canvas');
+          const pre = canvas?.querySelector('.ascii-frame:not(.ascii-onion)');
+          if (pre) pre.innerHTML = localFrames[currentFrameIndex];
+        }
+      }, 16);
+    }
+
+    if (gridOverlay) {
+      gridOverlay.addEventListener('mousedown', e => {
+        const cell = e.target.closest('.ascii-grid-cell');
+        if (!cell) return;
+        if (e.button === 2 || e.altKey) {
+          // Eyedropper
+          const r = +cell.dataset.row, c = +cell.dataset.col;
+          const cols = parseInt(colsInput?.value, 10) || 80;
+          const rows = parseInt(rowsInput?.value, 10) || 24;
+          if (currentGrid === null) currentGrid = htmlToGrid(localFrames[currentFrameIndex], cols, rows);
+          const picked = currentGrid[r]?.[c];
+          if (picked) {
+            if (toolChar) toolChar.value = picked.ch === ' ' ? ' ' : picked.ch;
+            if (toolClass) toolClass.value = picked.cls || '';
+          }
+          return;
+        }
+        isPainting = true;
+        paintCell(cell);
+      });
+      gridOverlay.addEventListener('mousemove', e => {
+        if (!isPainting) return;
+        const cell = e.target.closest('.ascii-grid-cell');
+        if (cell) paintCell(cell);
+      });
+      gridOverlay.addEventListener('contextmenu', e => e.preventDefault());
+    }
+    document.addEventListener('mouseup', () => { isPainting = false; });
+
+    if (onionSkinChk) onionSkinChk.addEventListener('change', () => {
+      onionSkinEnabled = onionSkinChk.checked;
+      if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+    });
+
+    function setEditMode(on) {
+      editMode = on;
+      if (editModeBtn) editModeBtn.classList.toggle('active', on);
+      if (toolInputs) toolInputs.style.display = on ? '' : 'none';
+      if (onionLabel) onionLabel.style.display = on ? '' : 'none';
+      if (on) {
+        buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
+      } else {
+        if (gridOverlay) { gridOverlay.style.display = 'none'; gridOverlay.innerHTML = ''; }
+      }
+    }
+
+    if (editModeBtn) editModeBtn.addEventListener('click', () => setEditMode(!editMode));
+
+    if (toolChar) {
+      // Auto-select on focus so typing replaces the existing char rather than appending.
+      toolChar.addEventListener('focus', () => toolChar.select());
+      // Clamp to 1 codepoint after each keystroke (maxlength="2" exists for multi-byte chars).
+      toolChar.addEventListener('input', () => {
+        const codepoints = Array.from(toolChar.value);
+        if (codepoints.length > 1) toolChar.value = codepoints[codepoints.length - 1];
       });
     }
 
-    // Validation
+    // ── Frame loading helper ──────────────────────────────
+
+    function framesLoaded() {
+      if (localFrames.length === 0) return;
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      normalizeFrames(cols, rows);
+      confirmedCols = cols;
+      confirmedRows = rows;
+      currentFrameIndex = 0;
+      currentGrid = null;
+      showTimeline();
+      syncTimeline();
+    }
+
+    // Palette changes → re-render palette style only
+    if (paletteRowsEl) paletteRowsEl.addEventListener('input', () => {
+      rebuildToolClassSelect();
+      if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+    });
+
+    // Size change → update aspect ratio (size drives the container shape)
+    if (sizeInput) sizeInput.addEventListener('input', () => {
+      updatePreviewAspectRatio();
+      if (fitSuggestionsEl) fitSuggestionsEl.hidden = true;
+    });
+
+    // ── Fit to widget ────────────────────────────────────
+
+    function computeFitSuggestions() {
+      const GRID_COL_W = 161, GRID_ROW_H = 130, GRID_GAP = 12, CHAR_W = 0.6;
+      const m = sizeInput?.value.trim().match(/^(\d+)x(\d+)$/i);
+      if (!m) return [];
+      const pxW = parseInt(m[1], 10) * GRID_COL_W + (parseInt(m[1], 10) - 1) * GRID_GAP;
+      const pxH = parseInt(m[2], 10) * GRID_ROW_H + (parseInt(m[2], 10) - 1) * GRID_GAP;
+      const k = (pxW / pxH) / CHAR_W; // target cols/rows ratio
+      const C = parseInt(colsInput?.value, 10) || 80;
+      const R = parseInt(rowsInput?.value, 10) || 24;
+
+      const rowsB = Math.max(1, Math.round((k * C + R) / (k * k + 1)));
+      const suggestions = [
+        { label: 'Keep rows', cols: Math.max(1, Math.round(R * k)), rows: R },
+        { label: 'Keep cols', cols: C, rows: Math.max(1, Math.round(C / k)) },
+        { label: 'Balanced',  cols: Math.max(1, Math.round(k * rowsB)), rows: rowsB },
+      ];
+
+      // Deduplicate by cols×rows
+      const seen = new Set();
+      return suggestions.filter(s => {
+        const key = `${s.cols}x${s.rows}`;
+        return seen.has(key) ? false : (seen.add(key), true);
+      });
+    }
+
+    if (fitBtn) fitBtn.addEventListener('click', () => {
+      if (!fitSuggestionsEl) return;
+      if (!fitSuggestionsEl.hidden) { fitSuggestionsEl.hidden = true; return; }
+      const suggestions = computeFitSuggestions();
+      if (suggestions.length === 0) return;
+      fitSuggestionsEl.innerHTML = '';
+      suggestions.forEach(s => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ascii-fit-suggestion';
+        btn.innerHTML = `<span class="ascii-fit-label">${s.label}</span><span class="ascii-fit-value">${s.cols} × ${s.rows}</span>`;
+        btn.addEventListener('click', () => {
+          fitSuggestionsEl.hidden = true;
+          if (colsInput) colsInput.value = s.cols;
+          if (rowsInput) rowsInput.value = s.rows;
+          colsInput?.dispatchEvent(new Event('input'));
+          colsInput?.dispatchEvent(new Event('change'));
+          rowsInput?.dispatchEvent(new Event('change'));
+        });
+        fitSuggestionsEl.appendChild(btn);
+      });
+      fitSuggestionsEl.hidden = false;
+    });
+
+    // Close fit suggestions when clicking outside
+    document.addEventListener('click', e => {
+      if (fitSuggestionsEl && !fitSuggestionsEl.hidden &&
+          !fitBtn?.contains(e.target) && !fitSuggestionsEl.contains(e.target)) {
+        fitSuggestionsEl.hidden = true;
+      }
+    });
+
+    // Cols/rows change → live re-render on input, normalize+confirm on commit
+    [colsInput, rowsInput].forEach(el => {
+      if (!el) return;
+      el.addEventListener('input', () => {
+        if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+        if (editMode) {
+          buildGridOverlay(parseInt(colsInput?.value, 10) || 80, parseInt(rowsInput?.value, 10) || 24);
+        }
+      });
+      el.addEventListener('change', () => {
+        const newCols = parseInt(colsInput?.value, 10) || 80;
+        const newRows = parseInt(rowsInput?.value, 10) || 24;
+        if (localFrames.length === 0) {
+          confirmedCols = newCols;
+          confirmedRows = newRows;
+          return;
+        }
+        const applyResize = () => {
+          normalizeFrames(newCols, newRows);
+          confirmedCols = newCols;
+          confirmedRows = newRows;
+          currentGrid = null;
+          syncTimeline();
+          if (editMode) buildGridOverlay(newCols, newRows);
+        };
+        const revertResize = () => {
+          if (colsInput) colsInput.value = confirmedCols;
+          if (rowsInput) rowsInput.value = confirmedRows;
+          renderFrameLocally(currentFrameIndex);
+          if (editMode) buildGridOverlay(confirmedCols, confirmedRows);
+        };
+        if (wouldTruncate(newCols, newRows)) {
+          showConfirm(
+            `Resizing to ${newCols}×${newRows} will permanently trim content outside the new boundaries. Continue?`,
+            applyResize,
+            revertResize
+          );
+        } else {
+          applyResize();
+        }
+      });
+    });
+
+    // ── Modal open/close ──────────────────────────────────
+
+    function closeModal() {
+      dismissConfirm();
+      if (fitSuggestionsEl) fitSuggestionsEl.hidden = true;
+      if (isPlaying) togglePlay();
+      if (playRafId) cancelAnimationFrame(playRafId);
+      if (previewRo) { previewRo.disconnect(); previewRo = null; }
+      editMode = false;
+      if (editModeBtn) editModeBtn.classList.remove('active');
+      overlay.classList.remove('open');
+      if (modal) modal.classList.remove('editor-active');
+      // Clear preview pane so injected <style> palette block is removed (CSS rules are global)
+      if (previewPane) previewPane.innerHTML = '';
+      // Re-append grid overlay (it lives inside previewPane but we just cleared it)
+      if (gridOverlay) {
+        gridOverlay.style.display = 'none';
+        gridOverlay.innerHTML = '';
+        if (previewPane) previewPane.appendChild(gridOverlay);
+      }
+      localFrames = [];
+      currentFrameIndex = 0;
+      currentGrid = null;
+      isPlaying = false;
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+    });
+
+    function resetModal() {
+      if (errorsEl) errorsEl.textContent = '';
+      if (previewPane) {
+        previewPane.innerHTML = '<p class="ascii-preview-empty">Add a blank frame to begin</p>';
+        if (gridOverlay) { gridOverlay.style.display = 'none'; gridOverlay.innerHTML = ''; previewPane.appendChild(gridOverlay); }
+      }
+      if (paletteRowsEl) paletteRowsEl.innerHTML = '';
+      if (timelineEl) timelineEl.style.display = 'none';
+      if (toolsEl) toolsEl.style.display = 'none';
+      if (modal) modal.classList.remove('editor-active');
+      if (frameSlider) { frameSlider.max = 0; frameSlider.value = 0; frameSlider.style.setProperty('--pct', '0%'); }
+      if (frameCounter) frameCounter.textContent = '0 / 0';
+      localFrames = [];
+      currentFrameIndex = 0;
+      currentGrid = null;
+      isPlaying = false;
+      onionSkinEnabled = false;
+      editMode = false;
+      if (onionSkinChk) onionSkinChk.checked = false;
+      if (editModeBtn) editModeBtn.classList.remove('active');
+      if (toolInputs) toolInputs.style.display = 'none';
+      if (onionLabel) onionLabel.style.display = 'none';
+    }
+
+    function openModal(mode, animName, variantSize) {
+      modalMode = mode;
+      modalName = animName || '';
+      if (isPlaying) togglePlay();
+      if (playRafId) cancelAnimationFrame(playRafId);
+      if (previewRo) { previewRo.disconnect(); previewRo = null; }
+      resetModal();
+
+      if (mode === 'create') {
+        if (titleEl) titleEl.textContent = 'New Animation';
+        if (nameInput) { nameInput.value = ''; nameInput.disabled = false; }
+        if (sizeInput) sizeInput.value = '';
+        if (colsInput) colsInput.value = '80';
+        if (rowsInput) rowsInput.value = '24';
+        if (fpsInput) fpsInput.value = '12';
+        updatePreviewAspectRatio();
+        localFrames = [blankFrame(80, 24)];
+        framesLoaded();
+      } else {
+        if (titleEl) titleEl.textContent = `Edit: ${animName}`;
+        if (nameInput) { nameInput.value = animName; nameInput.disabled = true; }
+        if (sizeInput) sizeInput.value = variantSize || '';
+        if (colsInput) colsInput.value = '80';
+        if (rowsInput) rowsInput.value = '24';
+        if (fpsInput) fpsInput.value = '12';
+
+        const metaP = fetch(`/api/ascii/animations/${encodeURIComponent(animName)}`)
+          .then(r => r.json())
+          .then(variants => {
+            const v = variantSize ? variants.find(vv => vv.size === variantSize) : variants[0];
+            if (!v) return;
+            if (sizeInput) sizeInput.value = v.size || variantSize || '';
+            if (colsInput) colsInput.value = v.cols || 80;
+            if (rowsInput) rowsInput.value = v.rows || 24;
+            if (fpsInput) fpsInput.value = v.fps || 12;
+            if (v.palette) Object.entries(v.palette).forEach(([cls, color]) => addPaletteRow(cls, color));
+          })
+          .catch(() => {});
+
+        if (variantSize) {
+          const framesP = fetch(`/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`)
+            .then(r => r.json())
+            .then(frames => { localFrames = frames; })
+            .catch(() => {});
+
+          Promise.all([metaP, framesP]).then(() => {
+            if (localFrames.length > 0) framesLoaded();
+          });
+        }
+      }
+
+      overlay.classList.add('open');
+    }
+
+    window.openAsciiModal = openModal;
+
+    document.querySelectorAll('.ascii-new-btn').forEach(btn => {
+      btn.addEventListener('click', () => openModal('create'));
+    });
+
+    document.querySelectorAll('.ascii-edit-variant-btn').forEach(btn => {
+      btn.addEventListener('click', () => openModal('edit', btn.dataset.name, btn.dataset.size));
+    });
+
+    // ── Validation + Save ────────────────────────────────
+
     function validate() {
       const name = nameInput?.value.trim() || '';
       const size = sizeInput?.value.trim() || '';
@@ -1748,9 +2444,11 @@
       return null;
     }
 
-    // Save
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
+        // Flush dirty grid
+        if (currentGrid !== null) { localFrames[currentFrameIndex] = gridToHtml(currentGrid); currentGrid = null; }
+
         const err = validate();
         if (err) { if (errorsEl) errorsEl.textContent = err; return; }
         if (errorsEl) errorsEl.textContent = '';

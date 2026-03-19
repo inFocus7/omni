@@ -3,5 +3,5 @@
 /output
 /tmp
 ui/static/app.min.js
-.claude/
+.claude/settings.local.json
 dashie.db*

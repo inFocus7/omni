@@ -42,7 +42,12 @@ func (w *Watcher) Start(ctx context.Context) {
 		for ev := range ch {
 			switch ev.Kind {
 			case store.EventPut:
-				w.registry.Register(asciiplugin.NewWidgetFromVariant(ev.Variant))
+				// Re-register all variants so Definition().Sizes stays complete.
+				if all, err := w.store.Get(ctx, ev.Name); err == nil && len(all) > 0 {
+					w.registry.Register(asciiplugin.NewWidgetFromVariants(all))
+				} else {
+					w.registry.Register(asciiplugin.NewWidgetFromVariant(ev.Variant))
+				}
 				w.cache.Store(ev.Variant.Name+"/"+ev.Variant.Size, ev.Variant.FramesGzip)
 				w.logger.Info().Str("animation", ev.Name).Str("size", ev.Variant.Size).Msg("store event: registered animation")
 

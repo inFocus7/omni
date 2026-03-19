@@ -47,6 +47,17 @@
     </footer>
 
     <div id="toast-container" class="toast-container"></div>
+
+    <!-- Generic confirmation dialog -->
+    <div class="confirm-overlay" id="confirm-overlay" hidden>
+        <div class="confirm-dialog">
+            <p class="confirm-msg" id="confirm-msg"></p>
+            <div class="confirm-actions">
+                <button class="btn-secondary" id="confirm-no" type="button">Cancel</button>
+                <button class="btn-danger" id="confirm-yes" type="button">Confirm</button>
+            </div>
+        </div>
+    </div>
     {{block "scripts" .}}
     <script src="/static/app.min.js"></script>
     {{end}}

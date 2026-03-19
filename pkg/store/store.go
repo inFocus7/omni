@@ -109,6 +109,10 @@ type Store interface {
 	// Delete removes an animation and all its variants.
 	Delete(ctx context.Context, name string) error
 
+	// DeleteVariant removes a single size variant of an animation.
+	// Returns ErrNotFound if the variant does not exist.
+	DeleteVariant(ctx context.Context, name, size string) error
+
 	// Watch returns a channel that emits events when the store changes.
 	// The channel is closed when ctx is cancelled or the store is closed.
 	Watch(ctx context.Context) (<-chan Event, error)

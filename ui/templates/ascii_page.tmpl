@@ -30,52 +30,64 @@
                     </select>
                     <input type="hidden" name="page" value="1">
                 </form>
+                <div class="ascii-import-export">
+                    <button class="ascii-import-btn" id="ascii-import-btn" type="button">Import ▾</button>
+                    <div class="ascii-import-dropdown" id="ascii-import-dropdown" hidden>
+                        <button class="ascii-import-option" data-type="local" type="button">Local folder</button>
+                        <div class="ascii-import-dropdown-sep" aria-hidden="true"></div>
+                        <button class="ascii-import-option" type="button" disabled>Remote (coming soon)</button>
+                    </div>
+                    <input type="file" id="ascii-import-file-input" webkitdirectory style="display:none">
+                </div>
+                <button class="ascii-export-btn" id="ascii-export-btn" type="button">Export</button>
                 <button class="ascii-new-btn">+ New animation</button>
             </div>
 
+            <div class="ascii-import-result" id="ascii-import-result" hidden>
+                <span class="ascii-import-result-text" id="ascii-import-result-text"></span>
+                <button class="ascii-import-result-close" id="ascii-import-result-close" type="button">&times;</button>
+            </div>
+
             {{if .Animations}}
-            <div class="ascii-gallery">
+            <div class="widget-grid ascii-gallery-grid">
                 {{range .Animations}}
                 {{$animName := .Name}}
                 {{$isRemote := .Source}}
-                <div class="ascii-card" data-name="{{.Name}}">
-                    <div class="ascii-card-header">
-                        <span class="ascii-card-name">{{.Name}}</span>
-                        {{if .Source}}<span class="ascii-card-badge">remote</span>{{end}}
-                        {{if not .Source}}
-                        <div class="ascii-card-actions">
-                            <button class="ascii-edit-btn" data-name="{{.Name}}" data-size="{{if .Variants}}{{(index .Variants 0).Size}}{{end}}">edit</button>
-                            <button class="ascii-delete-btn" data-name="{{.Name}}">delete</button>
+                {{range .Variants}}
+                <div class="widget ascii-gallery-item"
+                     style="grid-column: span {{sizeW .Size}}; grid-row: span {{sizeH .Size}}"
+                     data-name="{{$animName}}" data-size="{{.Size}}">
+                    <div id="asc-{{$animName}}-{{.Size}}" class="ascii-scope">
+                        {{paletteCSS $animName .Size .Palette}}
+                        <div class="widget-fill ascii-canvas"
+                             data-ascii-cols="{{.Cols}}"
+                             data-ascii-rows="{{.Rows}}"
+                             data-ascii-fps="{{.FPS}}"
+                             data-ascii-frames-url="/api/ascii/frames/{{$animName}}?size={{.Size}}">
+                            <pre class="ascii-frame">{{safeHTML .FirstFrame}}</pre>
+                            <div class="ascii-pause-indicator" hidden>
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                    <rect x="6" y="4" width="4" height="16"/>
+                                    <rect x="14" y="4" width="4" height="16"/>
+                                </svg>
+                            </div>
                         </div>
-                        {{end}}
                     </div>
-                    <div class="ascii-card-variants">
-                        {{range .Variants}}
-                        <div class="ascii-card-variant" data-name="{{$animName}}" data-size="{{.Size}}" data-fps="{{.FPS}}">
-                            <div id="asc-{{$animName}}-{{.Size}}">
-                                {{paletteCSS $animName .Size .Palette}}
-                                <div class="ascii-card-thumb"
-                                     style="--ascii-cols:{{.Cols}};--ascii-rows:{{.Rows}}"
-                                     data-ascii-cols="{{.Cols}}"
-                                     data-ascii-rows="{{.Rows}}">
-                                    <pre class="ascii-frame">{{safeHTML .FirstFrame}}</pre>
-                                </div>
-                            </div>
-                            <div class="ascii-card-meta">{{.Size}} · {{.Cols}}×{{.Rows}} @ {{.FPS}}fps</div>
-                            {{if not $isRemote}}
-                            <div class="ascii-card-variant-actions">
-                                <button class="ascii-card-play">▶</button>
-                                <button class="ascii-edit-variant-btn" data-name="{{$animName}}" data-size="{{.Size}}">edit</button>
-                            </div>
-                            {{else}}
-                            <div class="ascii-card-variant-actions">
-                                <button class="ascii-card-play">▶</button>
-                            </div>
-                            {{end}}
+                    <div class="ascii-gallery-overlay">
+                        <div class="ascii-gallery-meta">
+                            <span class="ascii-gallery-name">{{$animName}}</span>
+                            <span class="ascii-gallery-size">{{.Size}} · {{.Cols}}×{{.Rows}}</span>
+                            {{if $isRemote}}<span class="ascii-card-badge">remote</span>{{end}}
+                        </div>
+                        {{if not $isRemote}}
+                        <div class="ascii-gallery-actions">
+                            <button class="ascii-edit-variant-btn ascii-gallery-btn" data-name="{{$animName}}" data-size="{{.Size}}">edit</button>
+                            <button class="ascii-delete-variant-btn ascii-gallery-btn" data-name="{{$animName}}" data-size="{{.Size}}">delete</button>
                         </div>
                         {{end}}
                     </div>
                 </div>
+                {{end}}
                 {{end}}
             </div>
 
@@ -112,6 +124,34 @@
         </div>
     </main>
 
+    <!-- ASCII Export Modal -->
+    <div class="ascii-export-overlay" id="ascii-export-overlay">
+        <div class="ascii-export-modal">
+            <div class="ascii-modal-header">
+                <span class="ascii-modal-title">Export animations</span>
+                <button class="ascii-modal-close" id="ascii-export-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="ascii-export-body">
+                <label class="ascii-export-select-all">
+                    <input type="checkbox" id="ascii-export-select-all"> Select all
+                </label>
+                <div class="ascii-export-list" id="ascii-export-list">
+                    <!-- populated by JS from /api/ascii/animations -->
+                </div>
+                <div class="ascii-export-pack-meta" id="ascii-export-pack-meta" style="display:none">
+                    <label>Pack name<input type="text" class="app-input" id="ascii-export-pack-name" placeholder="my-pack"></label>
+                    <label>Version<input type="text" class="app-input" id="ascii-export-pack-version" value="1.0.0"></label>
+                    <label>Author<input type="text" class="app-input" id="ascii-export-pack-author" placeholder="username"></label>
+                </div>
+            </div>
+            <div class="ascii-modal-footer">
+                <span class="ascii-modal-errors" id="ascii-export-errors"></span>
+                <button class="ascii-modal-cancel" id="ascii-export-cancel" type="button">Cancel</button>
+                <button class="ascii-modal-save" id="ascii-export-download" type="button">Download zip</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ASCII CRUD Modal -->
     <div class="ascii-modal-overlay" id="ascii-modal-overlay">
         <div class="ascii-modal">
@@ -120,69 +160,116 @@
                 <button class="ascii-modal-close" id="ascii-modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="ascii-modal-body">
-                <div class="ascii-modal-form">
-                    <label>
-                        Name
-                        <input type="text" class="app-input" id="ascii-form-name" placeholder="my-animation" autocomplete="off">
-                    </label>
-                    <div class="ascii-form-row">
+                <!-- LEFT SIDEBAR -->
+                <div class="ascii-modal-sidebar">
+                    <div class="ascii-modal-form">
                         <label>
+                            Name
+                            <input type="text" class="app-input" id="ascii-form-name" placeholder="my-animation" autocomplete="off">
+                        </label>
+                        <label data-tip="The widget's footprint on the dashboard grid — columns × rows (e.g. 2x1 spans 2 columns and 1 row).">
                             Size
-                            <input type="text" class="app-input" id="ascii-form-size" placeholder="2x1" autocomplete="off">
-                        </label>
-                        <label>
-                            Cols
-                            <input type="number" class="app-input" id="ascii-form-cols" min="1" value="80">
-                        </label>
-                        <label>
-                            Rows
-                            <input type="number" class="app-input" id="ascii-form-rows" min="1" value="24">
-                        </label>
-                        <label>
-                            FPS
-                            <input type="number" class="app-input" id="ascii-form-fps" min="1" max="60" value="12">
-                        </label>
-                    </div>
-
-                    <div class="ascii-palette-editor">
-                        <div class="ascii-palette-header">
-                            <span class="ascii-palette-label">Palette</span>
-                            <button class="ascii-palette-add" id="ascii-palette-add" type="button">+ Add color</button>
-                        </div>
-                        <div id="ascii-palette-rows" class="ascii-palette-rows-grid"></div>
-                    </div>
-
-                    <div class="ascii-frames-input">
-                        <div class="ascii-frames-tabs">
-                            <button class="ascii-frames-tab active" data-tab="paste" type="button">Paste JSON</button>
-                            <button class="ascii-frames-tab" data-tab="file" type="button">File</button>
-                        </div>
-                        <div id="ascii-frames-paste" class="ascii-frames-panel">
-                            <textarea class="app-input ascii-frames-textarea" id="ascii-form-frames" placeholder='["&lt;span&gt;frame 0&lt;/span&gt;", "&lt;span&gt;frame 1&lt;/span&gt;"]' spellcheck="false"></textarea>
-                        </div>
-                        <div id="ascii-frames-file" class="ascii-frames-panel" style="display:none">
-                            <div class="ascii-file-drop" id="ascii-file-drop">
-                                Drop .json file here or
-                                <button class="ascii-file-btn" id="ascii-file-btn" type="button">browse</button>
-                                <input type="file" id="ascii-file-input" accept=".json" style="display:none">
+                            <div class="ascii-size-row">
+                                <input type="text" class="app-input" id="ascii-form-size" placeholder="2x1" autocomplete="off">
+                                <button class="ascii-fit-btn" id="ascii-fit-btn" type="button" title="Suggest cols/rows that fill this widget size">Fit</button>
                             </div>
+                            <div class="ascii-fit-suggestions" id="ascii-fit-suggestions" hidden></div>
+                        </label>
+                        <div class="ascii-form-row ascii-form-row--compact">
+                            <label>
+                                Cols
+                                <input type="number" class="app-input" id="ascii-form-cols" min="1" value="80">
+                            </label>
+                            <label>
+                                Rows
+                                <input type="number" class="app-input" id="ascii-form-rows" min="1" value="24">
+                            </label>
+                            <label>
+                                FPS
+                                <input type="number" class="app-input" id="ascii-form-fps" min="1" max="60" value="12">
+                            </label>
                         </div>
-                        <div class="ascii-frames-count" id="ascii-frames-count"></div>
+
+                        <div class="ascii-palette-editor">
+                            <div class="ascii-palette-header">
+                                <span class="ascii-palette-label">Palette</span>
+                                <button class="ascii-palette-add" id="ascii-palette-add" type="button">+ Add color</button>
+                            </div>
+                            <div id="ascii-palette-rows" class="ascii-palette-rows-grid"></div>
+                        </div>
+
                     </div>
                 </div>
 
-                <div class="ascii-modal-preview" id="ascii-modal-preview">
+                <!-- Drag resize handle -->
+                <div class="ascii-modal-resize-handle" id="ascii-modal-resize-handle"></div>
+
+                <!-- RIGHT EDITOR AREA -->
+                <div class="ascii-modal-editor">
+                    <div class="ascii-editor-content">
+                    <!-- Canvas toolbar: edit mode & onion skin — proximate to the canvas they affect -->
+                    <div class="ascii-canvas-toolbar" id="ascii-tools" style="display:none">
+                        <div class="ascii-canvas-toolbar-left">
+                            <button class="ascii-timeline-btn ascii-edit-mode-btn" id="ascii-edit-mode" type="button" title="Toggle grid editor — click cells in the preview to paint">&#x270E; Edit</button>
+                            <label class="ascii-tool-toggle" id="ascii-onion-label" style="display:none">
+                                <span class="ascii-tool-toggle-track">
+                                    <input type="checkbox" id="ascii-onion-skin" class="ascii-toggle-input">
+                                    <span class="ascii-toggle-thumb"></span>
+                                </span>
+                                Onion skin
+                            </label>
+                        </div>
+                        <div class="ascii-tool-row" id="ascii-tool-inputs" style="display:none">
+                            <label>
+                                Char
+                                <input type="text" class="app-input ascii-tool-char" id="ascii-tool-char" maxlength="2" value=" ">
+                            </label>
+                            <label>
+                                Class
+                                <select class="app-input ascii-tool-class" id="ascii-tool-class">
+                                    <option value="">(none)</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <!-- Preview pane with grid overlay -->
                     <div class="ascii-preview-pane" id="ascii-preview-pane">
-                        <p class="ascii-preview-empty">Fill in form fields to preview</p>
+                        <p class="ascii-preview-empty">Add a blank frame to begin</p>
+                        <div class="ascii-grid-overlay" id="ascii-grid-overlay" style="display:none"></div>
                     </div>
-                    <div class="ascii-preview-controls">
-                        <button class="ascii-preview-play" id="ascii-preview-play" type="button" disabled>▶ Play</button>
-                        <span class="ascii-preview-status" id="ascii-preview-status"></span>
+
+                    <!-- Timeline transport -->
+                    <div class="ascii-timeline" id="ascii-timeline" style="display:none">
+                        <div class="ascii-timeline-controls">
+                            <button class="ascii-timeline-btn" id="ascii-tl-first" type="button" title="First frame">&#x23EE;</button>
+                            <button class="ascii-timeline-btn" id="ascii-tl-prev" type="button" title="Previous frame">&#x23F4;</button>
+                            <button class="ascii-timeline-btn ascii-tl-play" id="ascii-tl-play" type="button" title="Play/Pause">&#x25B6;</button>
+                            <button class="ascii-timeline-btn" id="ascii-tl-next" type="button" title="Next frame">&#x23F5;</button>
+                            <button class="ascii-timeline-btn" id="ascii-tl-last" type="button" title="Last frame">&#x23ED;</button>
+                            <span class="ascii-frame-counter" id="ascii-frame-counter">0 / 0</span>
+                            <label class="ascii-speed-control">
+                                <select class="ascii-speed-select" id="ascii-speed-select">
+                                    <option value="0.25">0.25x</option>
+                                    <option value="0.5">0.5x</option>
+                                    <option value="1" selected>1x</option>
+                                    <option value="2">2x</option>
+                                </select>
+                            </label>
+                        </div>
+                        <input type="range" class="ascii-frame-slider" id="ascii-frame-slider" min="0" max="0" value="0">
+                        <!-- Frame operations -->
+                        <div class="ascii-frame-ops">
+                            <button class="ascii-timeline-btn" id="ascii-op-dup" type="button" title="Duplicate frame">Dup</button>
+                            <button class="ascii-timeline-btn" id="ascii-op-blank" type="button" title="Insert blank frame">+Blank</button>
+                            <button class="ascii-timeline-btn" id="ascii-op-del" type="button" title="Delete frame">Del</button>
+                            <button class="ascii-timeline-btn" id="ascii-op-left" type="button" title="Move frame left">&#x2190;</button>
+                            <button class="ascii-timeline-btn" id="ascii-op-right" type="button" title="Move frame right">&#x2192;</button>
+                        </div>
                     </div>
+                    </div><!-- /.ascii-editor-content -->
                 </div>
             </div>
-            <div class="ascii-modal-footer">
-                <button class="ascii-preview-toggle" id="ascii-preview-toggle" type="button">Preview</button>
+<div class="ascii-modal-footer">
                 <span class="ascii-modal-errors" id="ascii-modal-errors"></span>
                 <button class="ascii-modal-cancel" id="ascii-modal-cancel" type="button">Cancel</button>
                 <button class="ascii-modal-save" id="ascii-modal-save" type="button">Save</button>

@@ -1,8 +1,9 @@
-{{define "ascii.tmpl"}}<div id="{{.Scope}}">{{.PaletteCSS}}<div class="widget-fill ascii-canvas"
+{{define "ascii.tmpl"}}<div id="{{.Scope}}" class="ascii-scope">{{.PaletteCSS}}<div class="widget-fill ascii-canvas"
      data-ascii-cols="{{.Cols}}"
      data-ascii-rows="{{.Rows}}"
      data-ascii-fps="{{.FPS}}"
-     data-ascii-frames-url="{{.FramesURL}}">
+     data-ascii-frames-url="{{.FramesURL}}"
+     data-ascii-autoplay>
     <pre class="ascii-frame">{{.Frame0}}</pre>
     <div class="ascii-pause-indicator" hidden>
         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">

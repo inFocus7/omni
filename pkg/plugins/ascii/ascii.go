@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -40,16 +41,25 @@ type Animation struct {
 }
 
 // Widget is a dashboard widget that renders an ASCII animation.
+// It holds all size variants so Definition() returns every available size
+// and Render() dispatches to the correct variant by sizeName.
 type Widget struct {
-	anim       Animation
-	framesGzip []byte // gzip-compressed JSON []string for the frames API
+	name     string
+	variants map[string]Animation // size → Animation
+	gz       map[string][]byte    // size → gzip-compressed frames blob
 }
 
-// FramesGzip returns the gzip-compressed frames blob.
-func (w *Widget) FramesGzip() []byte { return w.framesGzip }
-
 // AnimationName returns the animation name.
-func (w *Widget) AnimationName() string { return w.anim.Name }
+func (w *Widget) AnimationName() string { return w.name }
+
+// FramesGzip returns the gzip-compressed frames for an arbitrary variant.
+// Prefer the frames cache / store for size-specific access.
+func (w *Widget) FramesGzip() []byte {
+	for _, gz := range w.gz {
+		return gz
+	}
+	return nil
+}
 
 // asciiTemplateData is the data passed to ascii.tmpl.
 type asciiTemplateData struct {
@@ -63,18 +73,29 @@ type asciiTemplateData struct {
 }
 
 func (w *Widget) Definition() widgets.WidgetDef {
-	size := parseSize(w.anim.Size)
+	sizes := make([]widgets.SizeOption, 0, len(w.variants))
+	for _, a := range w.variants {
+		sizes = append(sizes, parseSize(a.Size))
+	}
+	sort.Slice(sizes, func(i, j int) bool { return sizes[i].Name < sizes[j].Name })
 	return widgets.WidgetDef{
-		ID:          "ascii-" + w.anim.Name,
+		ID:          "ascii-" + w.name,
 		PluginID:    "ascii",
-		Name:        w.anim.Name,
+		Name:        w.name,
 		Description: "ASCII animation",
-		Sizes:       []widgets.SizeOption{size},
+		Sizes:       sizes,
 	}
 }
 
-func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, error) {
-	a := w.anim
+func (w *Widget) Render(_ context.Context, _ string, sizeName string) (template.HTML, error) {
+	a, ok := w.variants[sizeName]
+	if !ok {
+		// Fallback to first available variant if the requested size isn't found.
+		for _, v := range w.variants {
+			a = v
+			break
+		}
+	}
 	scope := "asc-" + a.Name + "-" + a.Size
 	data := asciiTemplateData{
 		Scope:      scope,
@@ -93,9 +114,6 @@ func (w *Widget) Render(_ context.Context, _ string, _ string) (template.HTML, e
 }
 
 // buildPaletteCSS constructs a scoped <style> block mapping each named class to its colour.
-// scope is the container element ID (e.g. "asc-logo-1x1") so that rules are written as
-// "#scope .class{color:value}", preventing conflicts between animations with the same class names.
-// Returns template.HTML to bypass html/template's CSS-context sanitization.
 func buildPaletteCSS(scope string, palette map[string]string) template.HTML {
 	if len(palette) == 0 {
 		return ""
@@ -126,21 +144,40 @@ func parseSize(s string) widgets.SizeOption {
 	return widgets.SizeOption{Name: s, W: w, H: h}
 }
 
-// NewWidgetFromVariant creates a Widget from a store.AnimationVariant.
-func NewWidgetFromVariant(v store.AnimationVariant) *Widget {
-	a := Animation{
-		Name:       v.Name,
-		Size:       v.Size,
-		Cols:       v.Cols,
-		Rows:       v.Rows,
-		FPS:        v.FPS,
-		Palette:    v.Palette,
-		FirstFrame: template.HTML(v.FirstFrame), // pre-rendered, trusted
+// NewWidgetFromVariants creates a Widget from a slice of store.AnimationVariants.
+// All variants must share the same Name. The resulting widget exposes every
+// size in Definition().Sizes and dispatches Render() to the correct variant.
+func NewWidgetFromVariants(variants []store.AnimationVariant) *Widget {
+	if len(variants) == 0 {
+		return nil
 	}
-	return newWidget(a, v.FramesGzip)
+	w := &Widget{
+		name:     variants[0].Name,
+		variants: make(map[string]Animation, len(variants)),
+		gz:       make(map[string][]byte, len(variants)),
+	}
+	for _, v := range variants {
+		w.variants[v.Size] = Animation{
+			Name:       v.Name,
+			Size:       v.Size,
+			Cols:       v.Cols,
+			Rows:       v.Rows,
+			FPS:        v.FPS,
+			Palette:    v.Palette,
+			FirstFrame: template.HTML(v.FirstFrame),
+		}
+		w.gz[v.Size] = v.FramesGzip
+	}
+	return w
 }
 
-// LoadFromStore loads all animations from s and returns them as Widgets.
+// NewWidgetFromVariant creates a single-variant Widget.
+func NewWidgetFromVariant(v store.AnimationVariant) *Widget {
+	return NewWidgetFromVariants([]store.AnimationVariant{v})
+}
+
+// LoadFromStore loads all animations from s and returns one Widget per animation
+// containing all its size variants.
 func LoadFromStore(ctx context.Context, s store.Store) ([]*Widget, error) {
 	metas, err := s.List(ctx)
 	if err != nil {
@@ -152,14 +189,9 @@ func LoadFromStore(ctx context.Context, s store.Store) ([]*Widget, error) {
 		if err != nil {
 			continue
 		}
-		for _, v := range variants {
-			result = append(result, NewWidgetFromVariant(v))
+		if w := NewWidgetFromVariants(variants); w != nil {
+			result = append(result, w)
 		}
 	}
 	return result, nil
-}
-
-// newWidget creates a Widget from an Animation and its gzip-compressed frames blob.
-func newWidget(a Animation, gz []byte) *Widget {
-	return &Widget{anim: a, framesGzip: gz}
 }

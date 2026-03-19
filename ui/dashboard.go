@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +108,30 @@ func funcMap() template.FuncMap {
 				return "org"
 			}
 			return "repo"
+		},
+
+		// sizeW / sizeH parse the W and H components from a "WxH" size string.
+		"sizeW": func(s string) int {
+			parts := strings.SplitN(s, "x", 2)
+			if len(parts) != 2 {
+				return 1
+			}
+			n, _ := strconv.Atoi(parts[0])
+			if n <= 0 {
+				return 1
+			}
+			return n
+		},
+		"sizeH": func(s string) int {
+			parts := strings.SplitN(s, "x", 2)
+			if len(parts) != 2 {
+				return 1
+			}
+			n, _ := strconv.Atoi(parts[1])
+			if n <= 0 {
+				return 1
+			}
+			return n
 		},
 
 		// safeHTML marks a string as safe HTML, bypassing template escaping.

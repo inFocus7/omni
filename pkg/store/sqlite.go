@@ -579,6 +579,20 @@ func (s *SQLiteStore) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
+// DeleteVariant removes a single size variant of an animation.
+// If no variants remain the animation row is also removed.
+func (s *SQLiteStore) DeleteVariant(ctx context.Context, name, size string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM animations WHERE name = ? AND size = ?`, name, size)
+	if err != nil {
+		return fmt.Errorf("delete variant %q/%q: %w", name, size, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Watch returns a channel that emits events when animations are created,
 // updated, or deleted. The channel is closed when ctx is cancelled.
 func (s *SQLiteStore) Watch(ctx context.Context) (<-chan Event, error) {

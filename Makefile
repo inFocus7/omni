@@ -1,7 +1,7 @@
 CLUSTER_NAME ?=omni-dev
 OMNI_NAMESPACE ?=omni-system
 
-.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down db-shell db-dump
+.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down db-shell db-dump test test-e2e
 
 # ── Local development ─────────────────────────────────────────────────────────
 
@@ -65,6 +65,14 @@ db-dump:
 		"SELECT name, size, cols, rows, fps FROM variants;" \
 		"SELECT '=== animation_frames ===' AS '';" \
 		"SELECT name, size, length(frames) AS frames_bytes FROM animation_frames;"
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+
+test:
+	go test ./...
+
+test-e2e:
+	go test -v -timeout 60s ./pkg/api/ -run 'TestImport|TestExport'
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 

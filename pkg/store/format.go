@@ -68,6 +68,31 @@ func CompressFrames(frames []string) (gz []byte, firstFrame string, err error) {
 	return gz, frames[0], nil
 }
 
+// PackJSON is the parsed content of a pack.json file that describes a
+// multi-animation bundle. It lists animation subdirectory names and optional
+// metadata fields used when generating a pack for export.
+type PackJSON struct {
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Author      string   `json:"author"`
+	Description string   `json:"description"`
+	License     string   `json:"license"`
+	Animations  []string `json:"animations"`
+}
+
+// ParsePackJSON parses a pack.json byte slice into a PackJSON.
+// Returns an error if the animations list is empty.
+func ParsePackJSON(data []byte) (PackJSON, error) {
+	var p PackJSON
+	if err := json.Unmarshal(data, &p); err != nil {
+		return PackJSON{}, fmt.Errorf("parse pack.json: %w", err)
+	}
+	if len(p.Animations) == 0 {
+		return PackJSON{}, fmt.Errorf("pack.json: animations list must not be empty")
+	}
+	return p, nil
+}
+
 // ParseMetaJSON parses a meta.json byte slice into a PackMeta.
 func ParseMetaJSON(data []byte) (PackMeta, error) {
 	var m PackMeta
