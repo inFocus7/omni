@@ -42,6 +42,7 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 	r.DELETE("/api/ascii/animations/:name", h.Delete)
 	r.DELETE("/api/ascii/animations/:name/:size", h.DeleteVariant)
 	r.POST("/api/ascii/animations/preview", h.Preview)
+	r.POST("/api/ascii/normalize", h.Normalize)
 	r.POST("/api/ascii/import", h.Import)
 	r.POST("/api/ascii/export", h.Export)
 }
@@ -124,6 +125,14 @@ func (h *AsciiAPI) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
+	if req.Cols > 0 && req.Rows > 0 {
+		normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "normalize: " + err.Error()})
+			return
+		}
+		req.Frames = normalized
+	}
 	gz, first, err := store.CompressFrames(req.Frames)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -153,6 +162,14 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 	if req.Name == "" {
 		req.Name = name
 	}
+	if req.Cols > 0 && req.Rows > 0 {
+		normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "normalize: " + err.Error()})
+			return
+		}
+		req.Frames = normalized
+	}
 	gz, first, err := store.CompressFrames(req.Frames)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -169,6 +186,34 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// Normalize accepts frames + cols/rows and returns frames normalized to exact dimensions.
+// This offloads the expensive HTML parse → grid → serialize round-trip from the client.
+func (h *AsciiAPI) Normalize(c *gin.Context) {
+	var req struct {
+		Frames []string `json:"frames"`
+		Cols   int      `json:"cols"`
+		Rows   int      `json:"rows"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	if req.Cols < 1 || req.Rows < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cols and rows must be positive"})
+		return
+	}
+	if len(req.Frames) == 0 {
+		c.JSON(http.StatusOK, gin.H{"frames": []string{}})
+		return
+	}
+	normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"frames": normalized})
 }
 
 // Delete removes an animation from the store, registry, and cache.

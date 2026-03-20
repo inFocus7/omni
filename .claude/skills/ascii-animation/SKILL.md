@@ -231,8 +231,16 @@ rows ≈ round(cols / k)
 
 **Font size formula (px):**
 ```
-fontSize = floor(min(pxW / (cols * 0.6), pxH / rows))
+fontSize = floor(max(pxW / (cols * 0.6), pxH / rows))
 ```
+
+The dashboard uses **cover-fit**: the font scales so the animation fills the widget completely, with `overflow: hidden` clipping any excess. This eliminates blank padding around the animation.
+
+**Perfect fit (zero clipping):** when the animation's aspect ratio exactly matches the widget cell, neither dimension overflows:
+```
+cols * 0.6 / rows  ==  pxW / pxH
+```
+`fit.py`'s **balanced** suggestion targets this ratio. If you use it, the animation fills the widget with no clipping at any screen size. This is especially important for animation sets that tie into one another visually — design to the balanced option and keep meaningful content away from the outer ~5% of edges as a safe zone.
 
 Use `fit.py` to compute suggestions automatically. Always run it before generating frames.
 

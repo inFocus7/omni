@@ -178,6 +178,8 @@ Which size would you like?
 
 Record the confirmed **widget size** (e.g. `2x2`) and **cols/rows** before proceeding.
 
+**Cover-fit behavior:** the dashboard scales animations to fill the widget completely (cover-fit, `overflow: hidden`). Size candidates from `gif_info.py` that closely match the widget's pixel aspect ratio will fill with little or no edge clipping. The closer the GIF's own aspect ratio is to the target widget, the cleaner the result — factor this in when recommending a widget size in Step 1.
+
 **Note:** use `--sizes "50x24,74x36,80x39"` instead of `--sizes-json` if you
 want to compare a specific custom list not derived from gif_info.
 

@@ -2110,6 +2110,13 @@ a:hover {
     display: contents;
 }
 
+/* ASCII widgets fill edge-to-edge — override the widget padding so the
+   animation uses the full cell area.  The scope wrapper uses display:contents
+   so :has() checks for .ascii-scope as a direct child of .widget. */
+.widget:has(> .ascii-scope) {
+    padding: 0;
+}
+
 .ascii-canvas {
     overflow: hidden;
     display: flex;
@@ -2851,6 +2858,24 @@ a:hover {
     color: var(--text-3);
     text-align: center;
     padding: 1rem;
+}
+
+.ascii-loading {
+    pointer-events: none;
+}
+.ascii-loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Simple spinner */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cstyle%3Ecircle%7Banimation:spin .7s linear infinite;transform-origin:center%7D%40keyframes spin%7Bto%7Btransform:rotate(360deg)%7D%7D%3C/style%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='rgba(255,255,255,.7)' stroke-width='2.5' stroke-dasharray='42 14'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
 }
 
 .ascii-preview-controls {
