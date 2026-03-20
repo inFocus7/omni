@@ -31,7 +31,6 @@ import statistics
 import subprocess
 import sys
 import tempfile
-from typing import Iterable
 
 try:
     from PIL import Image
@@ -240,10 +239,7 @@ def global_quantize(all_color_grids, n_colors):
     ]
 
     # Split back into per-frame index lists
-    data = quantized.getdata()
-    if not isinstance(data, Iterable):
-        raise ValueError("Quantized image data is not iterable.")
-    all_indices = list(data)[:n]
+    all_indices = list(quantized.getdata())[:n]
     per_frame = []
     # Reconstruct per-frame index lists using frame sizes
     sizes = [len(g) for g in all_color_grids]
@@ -308,6 +304,9 @@ def main():
     parser.add_argument("--char-map", default=None,
                         help="Custom character map for ascii-image-converter (omit to use its default)")
     parser.add_argument("--grayscale", action="store_true")
+    parser.add_argument("--size", default=None,
+                        help="Widget grid size label for meta.json, e.g. '3x2'. "
+                             "If omitted, derived from --out path or defaults to '1x1'.")
     args = parser.parse_args()
 
     if not os.path.isfile(args.gif_path):
@@ -315,7 +314,6 @@ def main():
         sys.exit(1)
 
     n_colors = max(2, args.colors)
-    size_str = "1x1"  # will be updated from fit info if agent provides it
 
     # ── Extract frames ────────────────────────────────────────────────────────
     print(f"Extracting frames from {args.gif_path}...")
@@ -392,12 +390,14 @@ def main():
     # ── Write output files ────────────────────────────────────────────────────
     os.makedirs(args.out, exist_ok=True)
 
-    # Derive size string from cols/rows (approximate match to standard sizes)
-    # Use a placeholder that the agent can correct in meta.json
-    import re as _re
-    size_match = _re.search(r'(\d+x\d+)', args.out)
-    size_str = size_match.group(1) if size_match else "1x1"
-    # Default to 1x1 — agent should correct via --out path convention or meta.json edit
+    # Determine widget size label for meta.json and frames filename.
+    # Prefer --size if provided; fall back to scanning --out path; then "1x1".
+    if args.size:
+        size_str = args.size
+    else:
+        import re as _re
+        size_match = _re.search(r'(\d+x\d+)', args.out)
+        size_str = size_match.group(1) if size_match else "1x1"
     frames_filename = f"frames-{size_str}.json"
 
     frames_path = os.path.join(args.out, frames_filename)

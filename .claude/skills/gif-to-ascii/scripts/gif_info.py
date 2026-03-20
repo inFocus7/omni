@@ -166,11 +166,14 @@ def suggest_color_count(complexity):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: gif_info.py <gif_path>", file=sys.stderr)
-        sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser(description="Analyze a GIF for OMNI ASCII conversion.")
+    parser.add_argument("gif_path", help="Path to the GIF file")
+    parser.add_argument("--json", action="store_true",
+                        help="Output machine-readable JSON for use with preview_compare.py --sizes-json")
+    args = parser.parse_args()
 
-    gif_path = sys.argv[1]
+    gif_path = args.gif_path
     if not os.path.isfile(gif_path):
         print(f"Error: file not found: {gif_path}", file=sys.stderr)
         sys.exit(1)
@@ -240,6 +243,35 @@ def main():
     suggested_colors, complexity_label = suggest_color_count(complexity)
 
     # ── Output ────────────────────────────────────────────────────────────────
+    if args.json:
+        import json as _json
+        output = {
+            "path": os.path.abspath(gif_path),
+            "width": width,
+            "height": height,
+            "frames": n_frames,
+            "fps": fps,
+            "aspect": round(aspect, 3),
+            "bg_color": bg_color,
+            "bg_pct": round(bg_pct, 1),
+            "suggested_colors": suggested_colors,
+            "complexity": round(complexity, 2),
+            "complexity_label": complexity_label,
+            "widget_sizes": [
+                {
+                    "size": f"{W}x{H}",
+                    "delta": round(delta * 100, 1),
+                    "options": [
+                        {"cols": c, "rows": r, "font_px": fs}
+                        for c, r, fs in suggestions
+                    ],
+                }
+                for delta, W, H, pxW, pxH, widget_ratio, suggestions in top3
+            ],
+        }
+        print(_json.dumps(output))
+        return
+
     print(f"GIF: {os.path.abspath(gif_path)}")
     print(f"Dimensions: {width}x{height} px")
     print(f"Frames: {n_frames}")

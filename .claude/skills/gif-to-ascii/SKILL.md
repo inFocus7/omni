@@ -13,10 +13,33 @@ allowed-tools:
 
 ## Purpose
 
-Converts a GIF into an OMNI-importable ASCII animation folder. Uses Pillow for
+Converts one or more GIFs into OMNI-importable ASCII animations. Supports both
+**single animation** output and **multi-animation pack** output. Uses Pillow for
 luminance-based character mapping and per-cell color extraction. Output uses
 RLE-compressed HTML spans — consecutive same-color characters share one
 `<span>`, background cells are plain unspanned spaces.
+
+---
+
+## Step 0 — Determine format
+
+Before anything else, ask:
+
+> "Are you converting a **single GIF** or multiple GIFs into a **pack**?"
+
+**Single**: proceed to Step 1 with the one GIF path.
+
+**Pack**: collect upfront:
+- The list of GIF paths to convert (if not already provided)
+- A pack name (lowercase kebab-case, e.g. `skull-pack`)
+- Optional pack metadata: author, version (e.g. `1.0.0`), description, license
+
+Then run Steps 1–8 for each GIF in sequence (one animation at a time), outputting
+each into `<pack-dir>/<animation-name>/`. After all GIFs are converted, proceed
+to Step 9 (Pack Assembly) before importing.
+
+Animation names for pack members default to the GIF's filename stem (lowercase
+kebab-case). Confirm names with the user before converting.
 
 ---
 
@@ -53,6 +76,28 @@ identity worth preserving.
 
 ---
 
+## ask_user_input rules (IMPORTANT)
+
+`ask_user_input` renders a selection widget that requires a server round-trip.
+Follow these rules exactly or the widget will not render:
+
+1. **One call per response, last thing sent.** Do not call it twice in the same
+   message. Do not add any tool calls or prose after it. The conversation pauses
+   until the user clicks a choice.
+
+2. **Ask first, convert after.** Never run conversions and then ask questions in
+   the same turn. The correct order is: ask → wait for answer → act.
+
+3. **If the widget fails to render**, fall back to plain text: list the options
+   numbered and ask the user to reply with their choice. Then wait for their
+   reply before proceeding.
+
+4. **Confirm defaults before converting.** If the user hasn't chosen settings
+   and you're about to use defaults, explicitly state the defaults you'll use
+   and ask for confirmation before running any conversion script.
+
+---
+
 ## Step 1 — Analyze GIF
 
 ```bash
@@ -69,13 +114,28 @@ Best widget sizes by aspect ratio:
   ★ 1x1  delta=19.3%  →  50×24 (5px)  | 80×39 (3px) | 74×36 (3px)
 
 Background: #000000 (87.5%) — will be unspanned spaces
-Suggested palette colors: 3 (low-moderate complexity)
+Color complexity: low-moderate → suggested 3 colors
+
+Color count options:
+  ★ 3 colors — recommended (smaller file, less color detail)
+  ○ 5 colors — moderate fidelity
+  ○ 8 colors — high fidelity (larger file)
 
 Would you like to preview size, charset, and/or palette options before
 converting? Or shall I proceed with the recommended settings?
 
-Recommended: 2x2 at 74×36, default charset, auto-detected palette.
+Recommended: 2x2 at 74×36, 3 colors, default charset, auto-detected palette.
 ```
+
+**Always ask the user to confirm or adjust the color count.** It directly controls
+color fidelity vs file size — do not silently use the suggestion without asking.
+Use `ask_user_input` if it would save a round-trip (color count + proceed/preview
+in one widget). Record the confirmed color count before Step 5.
+
+Color count guidance:
+- 2–3: stylized look, very small file — good for simple or monochrome GIFs
+- 4–5: balanced — usually right for real-world footage
+- 6–8: high fidelity — use for colorful GIFs where color accuracy matters; monitor span count
 
 If the user says proceed → skip to Step 5 (estimate).
 If the user wants to preview → work through Steps 2–4 in order.
@@ -100,8 +160,13 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/preview_compare.py <gif_path> \
 ```
 
 This derives size candidates directly from the GIF's aspect ratio — no
-hardcoded list. Present the output in a visualizer widget (dark bg, monospace,
-side-by-side grid). Then use `ask_user_input` to offer clickable choices:
+hardcoded list.
+
+**Presenting the preview:** always paste the raw script output inside a fenced
+code block (` ``` `) so the chat interface renders it in a fixed-width font.
+Without a code block, the ASCII art will not align. Each size option is printed
+sequentially with a label — present them as distinct sections, not side-by-side.
+Then use `ask_user_input` to offer clickable choices:
 
 ```
 Which size would you like?
@@ -111,7 +176,7 @@ Which size would you like?
   ○ 1x1 at 50×24 (5px font) — compact
 ```
 
-Record the confirmed cols and rows before proceeding.
+Record the confirmed **widget size** (e.g. `2x2`) and **cols/rows** before proceeding.
 
 **Note:** use `--sizes "50x24,74x36,80x39"` instead of `--sizes-json` if you
 want to compare a specific custom list not derived from gif_info.
@@ -155,8 +220,8 @@ Example for a monochrome portrait:
 --charsets " .',:;clodxkO0KXN@| .:;=+xX$&#@| .,:;=+xX#@| ░▒▓█"
 ```
 
-Present output in visualizer widget. Use `ask_user_input` for choices.
-Record the confirmed charset before proceeding.
+Present output in a fenced code block (` ``` `) so it renders monospace.
+Use `ask_user_input` for choices. Record the confirmed charset before proceeding.
 
 **Charset rule:** avoid asymmetric chars like `{}[]()` — they disrupt halftone
 texture. Characters that read as density: `. , : ; = + x X # @ % ░ ▒ ▓ █`
@@ -202,9 +267,16 @@ relevant accents. Available named presets (pass whichever fit the context):
 | red        | `#aa1100, #ff3300`                            |
 | purple     | `#550088, #cc00ff`                            |
 
-Present output in visualizer widget. Use `ask_user_input` for choices.
-If the user picks a palette override, note it — you'll apply it as a
-`meta.json` edit after conversion (no need to re-convert).
+Present output in a fenced code block (` ``` `) so it renders monospace.
+Use `ask_user_input` for choices. If the user picks a palette override, note it
+— you'll apply it as a `meta.json` edit after conversion (no need to re-convert).
+
+**How colors work (important context for user questions):**
+
+- Terminal previews (`preview_compare.py`, `estimate.py`) are always **monochrome** — they show character density only, not color. The user will only see actual colors in OMNI.
+- **Without a palette override**: conversion extracts actual pixel colors from the GIF using Pillow's median-cut quantization. Each cell is mapped to its nearest of the N quantized colors. `meta.json` stores the real hex values from the image. OMNI renders these accurately.
+- **With a palette override** (editing `meta.json` post-conversion): cells were assigned classes (`dark`/`mid`/`bright`) by luminance rank of the auto-detected palette. The override replaces those hex values, so the darkest cells get the darkest override color, brightest get the brightest. This effectively renders colors by luminance bucket. Only use overrides for stylized/monochrome looks — to preserve actual image colors, do not override.
+- If actual image colors look muted or grey, increase `--colors` (try 6–8). With only 3 colors, distinct hues can collapse into the same bucket.
 
 ---
 
@@ -230,8 +302,13 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/gif_to_frames.py <gif_path> \
   --bg-color "<hex>" \
   --char-map "<chars>" \
   --name <animation-name> \
+  --size <WxH> \
   --out <output-dir>
 ```
+
+`--size` is the **widget grid size** confirmed in Step 1/2 (e.g. `3x2`, `1x2`). This
+is what gets written to `meta.json` and used as the frames filename
+(`frames-3x2.json`). Without it the script defaults to `1x1`.
 
 For grayscale: add `--grayscale`, omit `--bg-color`.
 
@@ -267,9 +344,48 @@ Present the size analysis. If any threshold is flagged:
 
 ---
 
-## Step 9 — Import
+## Step 9 — Pack assembly _(pack mode only)_
 
-OMNI → `/ascii` page → Import → Local folder → select the output directory.
+After all GIFs have been converted and validated, generate `pack.json` in the
+pack root directory:
+
+```json
+{
+  "name": "<pack-name>",
+  "version": "1.0.0",
+  "author": "<author>",
+  "description": "<description>",
+  "license": "MIT",
+  "animations": ["<anim-one>", "<anim-two>"]
+}
+```
+
+- `animations` must exactly match the subdirectory names inside the pack folder
+- Optional fields (`version`, `author`, `description`, `license`) can be omitted if the user didn't provide them
+
+**Pack folder structure:**
+```
+<pack-name>/
+├── pack.json
+├── <anim-one>/
+│   ├── meta.json
+│   └── frames-<size>.json
+└── <anim-two>/
+    ├── meta.json
+    └── frames-<size>.json
+```
+
+---
+
+## Step 10 — Import
+
+**Single animation**: OMNI → `/ascii` page → Import → Local folder → select the
+animation folder (the one containing `meta.json`).
+
+**Pack**: OMNI → `/ascii` page → Import → Local folder → select the **pack
+folder** (the one containing `pack.json`). All animations in the pack are
+imported in one operation.
+
 On name collision: OMNI will prompt to overwrite.
 
 ---
@@ -314,21 +430,28 @@ Never span spaces unless the user explicitly wants a visible colored background.
 
 ## Script reference
 
-| Script                               | Purpose                                            | When              |
-| ------------------------------------ | -------------------------------------------------- | ----------------- |
-| `gif_info.py`                        | Analyze GIF, suggest sizes, detect bg              | Step 1 — always   |
-| `gif_info.py --json`                 | Same but machine-readable for `preview_compare.py` | Step 2            |
-| `preview_compare.py --mode sizes`    | Compare cols×rows options                          | Step 2 — optional |
-| `preview_compare.py --mode charsets` | Compare character sets                             | Step 3 — optional |
-| `preview_compare.py --mode palettes` | Compare color palettes                             | Step 4 — optional |
-| `estimate.py`                        | File size estimate                                 | Step 5 — always   |
-| `gif_to_frames.py`                   | Full conversion                                    | Step 6 — always   |
-| `validate.py`                        | Structural + size validation                       | Step 8 — always   |
-| `preview.py`                         | Text-mode frame playback                           | Step 8 — always   |
+| Script                               | Purpose                                            | When                           |
+| ------------------------------------ | -------------------------------------------------- | ------------------------------ |
+| `gif_info.py`                        | Analyze GIF, suggest sizes, detect bg              | Step 1 — always (per GIF)      |
+| `gif_info.py --json`                 | Same but machine-readable for `preview_compare.py` | Step 2                         |
+| `preview_compare.py --mode sizes`    | Compare cols×rows options                          | Step 2 — optional              |
+| `preview_compare.py --mode charsets` | Compare character sets                             | Step 3 — optional              |
+| `preview_compare.py --mode palettes` | Compare color palettes                             | Step 4 — optional              |
+| `estimate.py`                        | File size estimate                                 | Step 5 — always (per GIF)      |
+| `gif_to_frames.py`                   | Full conversion                                    | Step 6 — always (per GIF)      |
+| `validate.py`                        | Structural + size validation                       | Step 8 — always (per GIF)      |
+| `preview.py`                         | Text-mode frame playback                           | Step 8 — always (per GIF)      |
 
 ---
 
 ## Output location
 
+**Single animation:**
 - If `$ARGUMENTS` contains a path, use it as the output directory
 - Otherwise: `./ascii-out/<animation-name>/`
+
+**Pack:**
+- If `$ARGUMENTS` contains a path, use it as the pack root directory
+- Otherwise: `./ascii-out/<pack-name>/`
+- Each animation is written to `<pack-root>/<animation-name>/`
+- `pack.json` is written to `<pack-root>/pack.json`

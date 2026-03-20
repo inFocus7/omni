@@ -26,7 +26,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Iterable
 
 try:
     from PIL import Image
@@ -175,10 +174,7 @@ def quantize_colors(color_grid, n_colors):
         (palette_raw[i * 3], palette_raw[i * 3 + 1], palette_raw[i * 3 + 2])
         for i in range(n_colors)
     ]
-    data = quantized.getdata()
-    if not isinstance(data, Iterable):
-         raise ValueError("Quantization failed: getdata() is not iterable")
-    indices = list(data)[:n]
+    indices = list(quantized.getdata())[:n]
     return palette_rgbs, indices
 
 

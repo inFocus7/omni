@@ -85,7 +85,6 @@ import argparse
 import json
 import os
 import sys
-from typing import Iterable
 
 try:
     from PIL import Image
@@ -167,10 +166,7 @@ def quantize_frame(frame_pil, cols, rows, n_colors, bg_rgb=None):
         (pal_raw[i*3], pal_raw[i*3+1], pal_raw[i*3+2])
         for i in range(n_colors)
     ]
-    data = quantized.getdata()
-    if not isinstance(data, Iterable):
-        raise ValueError("Quantized image data is not iterable")
-    indices = list(data)
+    indices = list(quantized.getdata())
 
     if bg_rgb:
         bg_idx = min(range(n_colors),

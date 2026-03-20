@@ -241,13 +241,31 @@
   class AsciiAnimController {
     constructor(canvas, frames, fps) {
       this.canvas = canvas;
-      this.frames = frames;
       this.fps = fps;
       this.currentFrame = 0;
       this.lastFrameTime = 0;
       this.paused = false;
       this.rafId = null;
       this.indicator = canvas.querySelector('.ascii-pause-indicator');
+
+      if (typeof frames[0] === 'string') {
+        // Virtual mode: single <pre> reused, innerHTML swapped per tick.
+        // Eliminates N×frames DOM nodes — only the current frame exists at any time.
+        this.frameStrings = frames;
+        this.pre = canvas.querySelector('.ascii-frame');
+        if (!this.pre) {
+          this.pre = document.createElement('pre');
+          this.pre.className = 'ascii-frame';
+          canvas.insertBefore(this.pre, this.indicator);
+        }
+        this.pre.innerHTML = frames[0];
+        this.frames = null;
+      } else {
+        // Legacy mode: array of <pre> elements (inline/fallback path), hidden-toggle.
+        this.frameStrings = null;
+        this.pre = null;
+        this.frames = frames;
+      }
     }
 
     start() {
@@ -268,9 +286,14 @@
       if (this.paused) return;
       if (ts - this.lastFrameTime < 1000 / this.fps) return;
       this.lastFrameTime = ts;
-      this.frames[this.currentFrame].hidden = true;
-      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
-      this.frames[this.currentFrame].hidden = false;
+      if (this.frameStrings) {
+        this.currentFrame = (this.currentFrame + 1) % this.frameStrings.length;
+        this.pre.innerHTML = this.frameStrings[this.currentFrame];
+      } else {
+        this.frames[this.currentFrame].hidden = true;
+        this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+        this.frames[this.currentFrame].hidden = false;
+      }
     }
 
     togglePause() {
@@ -323,24 +346,7 @@
           observer.disconnect();
           fetch(framesUrl)
             .then(r => r.json())
-            .then(frameStrings => {
-              const inlinePre = canvas.querySelector('.ascii-frame');
-              const allPres = [];
-              frameStrings.forEach((html, i) => {
-                let pre;
-                if (i === 0 && inlinePre) {
-                  pre = inlinePre;
-                } else {
-                  pre = document.createElement('pre');
-                  pre.className = 'ascii-frame';
-                  pre.hidden = true;
-                  pre.innerHTML = html;
-                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
-                }
-                allPres.push(pre);
-              });
-              startController(allPres);
-            })
+            .then(frameStrings => startController(frameStrings))
             .catch(() => {
               const inlinePre = canvas.querySelector('.ascii-frame');
               if (inlinePre) inlinePre.hidden = false;
@@ -355,24 +361,7 @@
           loaded = true;
           fetch(framesUrl)
             .then(r => r.json())
-            .then(frameStrings => {
-              const inlinePre = canvas.querySelector('.ascii-frame');
-              const allPres = [];
-              frameStrings.forEach((html, i) => {
-                let pre;
-                if (i === 0 && inlinePre) {
-                  pre = inlinePre;
-                } else {
-                  pre = document.createElement('pre');
-                  pre.className = 'ascii-frame';
-                  pre.hidden = true;
-                  pre.innerHTML = html;
-                  canvas.insertBefore(pre, canvas.querySelector('.ascii-pause-indicator'));
-                }
-                allPres.push(pre);
-              });
-              startController(allPres);
-            })
+            .then(frameStrings => startController(frameStrings))
             .catch(() => {
               const inlinePre = canvas.querySelector('.ascii-frame');
               if (inlinePre) inlinePre.hidden = false;
