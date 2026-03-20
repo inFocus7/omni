@@ -18,14 +18,15 @@ Usage:
 Exit codes: 0 always (advisory output only, never hard-fails)
 """
 
-import sys
-import os
-import re
-import math
 import argparse
+import math
+import os
 import random
+import re
 import subprocess
+import sys
 import tempfile
+from typing import Iterable
 
 try:
     from PIL import Image
@@ -35,7 +36,7 @@ except ImportError:
 
 # Import shared metrics + thresholds from validate.py (same scripts/ dir)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from validate import compute_size_metrics, apply_thresholds, TAG_RE
+from validate import apply_thresholds, compute_size_metrics
 
 # ── Color helpers ─────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ def frame_to_char_grid(frame_img, cols, rows, char_map, tmp_dir):
         ]
         if char_map:
             cmd += ["--map", char_map]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         # ascii-image-converter saves to <basename>_ascii_art.txt
         base = os.path.splitext(os.path.basename(tmp_png))[0]
         txt_path = os.path.join(tmp_dir, f"{base}_ascii_art.txt")
@@ -127,12 +128,12 @@ def frame_to_char_grid(frame_img, cols, rows, char_map, tmp_dir):
                     line = line[:cols]
                 char_grid.append(line)
             return char_grid
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: ascii-image-converter failed: {e}", file=sys.stderr)
 
-    # Fallback: luminance-based char mapping using Pillow
+    # Fallback: luminance-based char mapping using Pillow (lower quality)
     chars = char_map if char_map else " .',:;clodxkO0KXN"
-    small = frame_img.convert('L').resize((cols, rows), Image.LANCZOS)
+    small = frame_img.convert('L').resize((cols, rows), Image.Resampling.LANCZOS)
     char_grid = []
     pixels = list(small.getdata())
     for row in range(rows):
@@ -149,7 +150,7 @@ def get_color_grid(frame_img, cols, rows):
     """
     Resize frame to cols×rows and return flat list of (r,g,b) per cell.
     """
-    small = frame_img.convert('RGB').resize((cols, rows), Image.LANCZOS)
+    small = frame_img.convert('RGB').resize((cols, rows), Image.Resampling.LANCZOS)
     return list(small.getdata())
 
 
@@ -168,11 +169,16 @@ def quantize_colors(color_grid, n_colors):
     img.putdata(padded)
     quantized = img.quantize(colors=n_colors, method=Image.Quantize.MEDIANCUT)
     palette_raw = quantized.getpalette()
+    if not palette_raw:
+        raise ValueError("Quantization failed: no palette found")
     palette_rgbs = [
         (palette_raw[i * 3], palette_raw[i * 3 + 1], palette_raw[i * 3 + 2])
         for i in range(n_colors)
     ]
-    indices = list(quantized.getdata())[:n]
+    data = quantized.getdata()
+    if not isinstance(data, Iterable):
+         raise ValueError("Quantization failed: getdata() is not iterable")
+    indices = list(data)[:n]
     return palette_rgbs, indices
 
 
@@ -269,8 +275,8 @@ def format_estimate(metrics, frame_label, cols, rows, n_frames):
     if metrics['gz_range']:
         lo, hi = metrics['gz_range']
         lines.append(f"Total gzip (est):  ~{lo:.1f}–{hi:.1f} KB  (conservative upper bound)")
-        lines.append(f"  Note: actual gzip may be much smaller — inter-frame repetition compresses")
-        lines.append(f"  far better than this single-frame estimate can predict.")
+        lines.append("  Note: actual gzip may be much smaller — inter-frame repetition compresses")
+        lines.append("  far better than this single-frame estimate can predict.")
     lines.append("")
     lines.append("Recommendations:")
     recs = apply_thresholds(metrics)
@@ -282,7 +288,7 @@ def format_estimate(metrics, frame_label, cols, rows, n_frames):
     else:
         healthy = []
         if not any('span' in m.lower() or 'run' in m.lower() or 'fragment' in m.lower() for _, m in recs):
-            healthy.append(f"✓ Span count and run length look healthy")
+            healthy.append("✓ Span count and run length look healthy")
         if not any('background' in m.lower() for _, m in recs):
             healthy.append(f"✓ Background ratio is healthy ({metrics['bg_ratio']*100:.0f}%)")
         if not any('frame' in m.lower() for _, m in recs):

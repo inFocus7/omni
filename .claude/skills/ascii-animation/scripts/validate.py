@@ -22,13 +22,11 @@ Exit codes:
   1 — at least one error
 """
 
-import sys
-import os
-import json
-import re
-import math
 import gzip
-
+import json
+import os
+import re
+import sys
 
 # ── Regexes matching Go's sanitize.go ───────────────────────────────────────
 
@@ -217,7 +215,6 @@ def apply_thresholds(metrics):
     root condition is also triggered (e.g. run_severe supersedes run_short).
     """
     triggered = []
-    triggered_labels = set()
     # Higher severity first so we can suppress lower-severity duplicates
     sorted_thresh = sorted(THRESHOLDS, key=lambda t: -t[2])
     suppress = set()

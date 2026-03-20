@@ -8,14 +8,13 @@ Usage:
 Output: structured text the agent can parse and present to the user.
 """
 
-import sys
-import os
 import math
+import os
 import statistics
-
+import sys
 
 try:
-    from PIL import Image, ImageStat
+    from PIL import Image
 except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
@@ -86,7 +85,7 @@ def quantize_frame(frame_img, n_colors=8, sample_size=16):
     Resize frame to sample_size×sample_size, quantize to n_colors,
     return list of (hex_color, count) sorted by count descending.
     """
-    small = frame_img.convert('RGB').resize((sample_size, sample_size), Image.LANCZOS)
+    small = frame_img.convert('RGB').resize((sample_size, sample_size), Image.Resampling.LANCZOS)
     quantized = small.quantize(colors=n_colors, method=Image.Quantize.MEDIANCUT)
     palette_raw = quantized.getpalette()  # flat list [r,g,b, r,g,b, ...]
     # Count pixels per palette index
@@ -159,7 +158,6 @@ def suggest_color_count(complexity):
     elif complexity < 0.65:
         return 5, "moderate"
     elif complexity < 0.80:
-        6, "moderate-high"
         return 6, "moderate-high"
     else:
         return 8, "high"

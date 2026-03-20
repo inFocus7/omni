@@ -13,80 +13,202 @@ allowed-tools:
 
 ## Purpose
 
-This skill converts a GIF file into an OMNI-importable ASCII animation folder. It uses `ascii-image-converter` for character density mapping and Pillow for per-cell color extraction. Output uses RLE-compressed HTML spans for efficient storage and render performance — only consecutive characters of the same palette class are grouped into one `<span>`, and background cells are left as plain unspanned spaces.
+Converts a GIF into an OMNI-importable ASCII animation folder. Uses Pillow for
+luminance-based character mapping and per-cell color extraction. Output uses
+RLE-compressed HTML spans — consecutive same-color characters share one
+`<span>`, background cells are plain unspanned spaces.
 
 ---
 
 ## Prerequisites
 
-At the start of every session, verify both tools are available:
-
 ```bash
-ascii-image-converter --version
 python3 -c "from PIL import Image; print('Pillow OK')"
 ```
 
-If `ascii-image-converter` is missing:
-```
-brew install TheZoraiz/ascii-image-converter/ascii-image-converter
-```
-
-If Pillow is missing:
-```
-pip3 install Pillow
-```
-
-Stop and show install instructions if either check fails.
+If missing: `pip3 install Pillow --break-system-packages`
 
 ---
 
-## Guided Conversation Flow
+## Workflow overview
 
-### Step 1 — GIF path
-If not provided via `$ARGUMENTS`, ask for the GIF file path.
+```
+gif_info.py          analyze GIF → suggest sizes, detect bg, estimate colors
+    ↓
+[optional previews]  user chooses settings visually before committing
+    ↓  size first → charset second → palette last (each constrains the next)
+    ↓
+estimate.py          confirm file size before full conversion
+    ↓
+gif_to_frames.py     full conversion
+    ↓
+validate.py          structural check + exact size metrics
+preview.py           text-mode playback
+```
 
-### Step 2 — Analyze GIF
-Run `gif_info.py` immediately after receiving the path:
+Previews are optional — if the user just wants to convert with defaults, skip
+straight to estimate.py. But always offer previews when the user seems
+uncertain, asks "what will it look like", or when the GIF has a strong visual
+identity worth preserving.
+
+---
+
+## Step 1 — Analyze GIF
+
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/gif_info.py <gif_path>
 ```
 
-### Step 3 — Present findings and ask all questions at once
-
-Present the full `gif_info.py` output to the user, then ask everything in one message:
+Present the output, then ask in one message:
 
 ```
-Your GIF: 480×270 px, 18 frames, ~10 FPS (uniform)
+Your GIF: 1080×1080px, 17 frames, 20 FPS
 
 Best widget sizes by aspect ratio:
-  ★ 2x1  — 334×130 px  (GIF ratio 1.78 vs widget 2.57 — 31% off)
-    Options: 81×19 (6px font) | 50×12 (10px font) | 103×24 (5px font)
-  ★ 2x2  — 334×272 px  (GIF ratio 1.78 vs widget 1.23 — 45% off)
-    Options: 74×36 (7px font) | 49×24 (11px font) | 80×39 (6px font)
-  ★ 1x1  — 161×130 px  (GIF ratio 1.78 vs widget 1.24 — 44% off)
-    Options: 45×22 (7px font) | 29×14 (11px font) | 57×28 (5px font)
+  ★ 2x2  delta=18.6%  →  49×24 (11px) | 80×39 (6px) | 74×36 (7px)
+  ★ 1x1  delta=19.3%  →  50×24 (5px)  | 80×39 (3px) | 74×36 (3px)
 
-Dominant colors detected (frames 1, 9, 18):
-  #1a1a2e  28%  ← likely background
-  #4a4e69  19%
-  #9a8c98  15%
-  #e63329  12%
-  #f2e9e4  10%
-  + 3 minor colors
+Background: #000000 (87.5%) — will be unspanned spaces
+Suggested palette colors: 3 (low-moderate complexity)
 
-Please confirm:
-  a) Widget size + cols×rows  (recommend 2x1, 81×19)
-  b) Grayscale or colored?
-  c) If colored: how many palette colors?  (recommend 5 for this GIF — complexity: moderate)
-  d) Background color — is #1a1a2e correct?  (unspanned, saves ~28% of spans)
-  e) Character set: default " .',:;clodxkO0KXN" or custom?
-  f) Target FPS: accept 10 FPS or override?
-  g) Animation name (lowercase-kebab)
+Would you like to preview size, charset, and/or palette options before
+converting? Or shall I proceed with the recommended settings?
+
+Recommended: 2x2 at 74×36, default charset, auto-detected palette.
 ```
 
-### Step 4 — Run estimate.py (blocking)
+If the user says proceed → skip to Step 5 (estimate).
+If the user wants to preview → work through Steps 2–4 in order.
+If the user only wants to preview one dimension (e.g. "just show palette options")
+→ skip to that step, using recommended defaults for the others.
 
-Before full conversion, run a sample-frame estimate with the confirmed settings:
+---
+
+## Step 2 — Preview: sizes _(optional)_
+
+Run first among previews because size constrains everything else.
+
+```bash
+# Get JSON from gif_info for size derivation
+GIF_JSON=$(python3 ${CLAUDE_SKILL_DIR}/scripts/gif_info.py <gif_path> --json)
+
+python3 ${CLAUDE_SKILL_DIR}/scripts/preview_compare.py <gif_path> \
+  --mode sizes \
+  --sizes-json "$GIF_JSON" \
+  --chars " .',:;clodxkO0KXN@" \
+  --frame 0
+```
+
+This derives size candidates directly from the GIF's aspect ratio — no
+hardcoded list. Present the output in a visualizer widget (dark bg, monospace,
+side-by-side grid). Then use `ask_user_input` to offer clickable choices:
+
+```
+Which size would you like?
+  ○ 2x2 at 74×36 (7px font) — recommended
+  ○ 2x2 at 80×39 (6px font) — more detail
+  ○ 2x2 at 49×24 (11px font) — bolder
+  ○ 1x1 at 50×24 (5px font) — compact
+```
+
+Record the confirmed cols and rows before proceeding.
+
+**Note:** use `--sizes "50x24,74x36,80x39"` instead of `--sizes-json` if you
+want to compare a specific custom list not derived from gif_info.
+
+---
+
+## Step 3 — Preview: charsets _(optional)_
+
+Run after size is confirmed. Charset choice is visual — always worth previewing
+for portrait/detailed subjects.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/preview_compare.py <gif_path> \
+  --mode charsets \
+  --cols <confirmed_cols> --rows <confirmed_rows> \
+  --charsets "<option1>|<option2>|<option3>" \
+  --frame 0
+```
+
+Choose 3–5 charsets to compare based on the GIF's content:
+
+- For high-contrast monochrome (like skulls, portraits): lead with `detailed`
+  and `clean`, include `blocks` as a bold option
+- For colorful or low-contrast GIFs: lead with `default`, include `minimal`
+- Always include the default as one option for reference
+
+Charset strings to pass (pipe-separated, ordered sparse→dense):
+
+| Name     | String                 |
+| -------- | ---------------------- |
+| default  | `" .',:;clodxkO0KXN@"` |
+| detailed | `" .:;=+xX$&#@"`       |
+| clean    | `" .,:;=+xX#@"`        |
+| blocks   | `" ░▒▓█"`              |
+| minimal  | `" .+#@"`              |
+| dots     | `" .·:+%#█"`           |
+
+Example for a monochrome portrait:
+
+```bash
+--charsets " .',:;clodxkO0KXN@| .:;=+xX$&#@| .,:;=+xX#@| ░▒▓█"
+```
+
+Present output in visualizer widget. Use `ask_user_input` for choices.
+Record the confirmed charset before proceeding.
+
+**Charset rule:** avoid asymmetric chars like `{}[]()` — they disrupt halftone
+texture. Characters that read as density: `. , : ; = + x X # @ % ░ ▒ ▓ █`
+
+---
+
+## Step 4 — Preview: palettes _(optional)_
+
+Run last — after size and charset are confirmed. Palette is the cheapest
+preview (char grid rendered once, reused for all options).
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/preview_compare.py <gif_path> \
+  --mode palettes \
+  --cols <confirmed_cols> --rows <confirmed_rows> \
+  --chars "<confirmed_charset>" \
+  --palettes "<label>:<hex1>,<hex2>|<label2>:<hex1>,<hex2>" \
+  --bg-color "<bg_hex>" \
+  --colors <n> \
+  --frame 0
+```
+
+`auto-detected` is always shown as the first option automatically.
+Choose which additional palettes to offer based on context — don't show all
+of them every time. For a monochrome GIF, lead with neutral options:
+
+```bash
+--palettes "white:#888888,#ffffff|light-grey:#aaaaaa,#dddddd|warm-white:#998870,#fff5e0"
+```
+
+For a colorful GIF or if the user has a specific color preference, include
+relevant accents. Available named presets (pass whichever fit the context):
+
+| Name       | Hex values (darkest → brightest, bg excluded) |
+| ---------- | --------------------------------------------- |
+| white      | `#888888, #ffffff`                            |
+| light-grey | `#aaaaaa, #dddddd`                            |
+| warm-white | `#998870, #fff5e0`                            |
+| cool-grey  | `#778899, #ccdde8`                            |
+| green      | `#00aa2a, #00ff41`                            |
+| amber      | `#aa6600, #ffcc00`                            |
+| cyan       | `#007799, #00ccff`                            |
+| red        | `#aa1100, #ff3300`                            |
+| purple     | `#550088, #cc00ff`                            |
+
+Present output in visualizer widget. Use `ask_user_input` for choices.
+If the user picks a palette override, note it — you'll apply it as a
+`meta.json` edit after conversion (no need to re-convert).
+
+---
+
+## Step 5 — Estimate file size
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/estimate.py <gif_path> \
@@ -95,9 +217,12 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/estimate.py <gif_path> \
   --frame first
 ```
 
-Present the full output including recommendations. If any ⚠⚠ threshold is flagged, ask the user to adjust settings before proceeding. If only ⚠ thresholds, describe the tradeoff and ask whether to proceed. This step can loop — re-run if settings change.
+Present the full output. If any ⚠⚠ threshold is flagged, ask the user to
+adjust before proceeding. If only ⚠, describe the tradeoff and ask.
 
-### Step 5 — Convert
+---
+
+## Step 6 — Convert
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/gif_to_frames.py <gif_path> \
@@ -108,56 +233,60 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/gif_to_frames.py <gif_path> \
   --out <output-dir>
 ```
 
-For grayscale: add `--grayscale` and omit `--bg-color`.
+For grayscale: add `--grayscale`, omit `--bg-color`.
 
-### Step 6 — Review generated palette
+---
 
-Present the palette from the script's stdout:
+## Step 7 — Apply palette override (if chosen in Step 4)
 
+If the user chose a palette override in Step 4, edit `meta.json` directly —
+no need to re-convert:
+
+```python
+import json
+meta = json.load(open("output-dir/meta.json"))
+meta["palette"] = {"dark": "#888888", "bright": "#ffffff"}
+json.dump(meta, open("output-dir/meta.json", "w"), indent=2)
 ```
-Generated palette:
-  shadow  → #1a1a2e   (background — unspanned)
-  dark    → #4a4e69
-  mid     → #9a8c98
-  accent  → #e63329
-  bright  → #f2e9e4
 
-Want to rename any classes or adjust any colors before import?
-```
+Also update the `name` field if the user wants to rename the animation.
 
-If the user renames or adjusts, edit `meta.json` directly — no need to re-convert.
+---
 
-### Step 7 — Validate + Preview
+## Step 8 — Validate + preview
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/validate.py <output-dir>
 python3 ${CLAUDE_SKILL_DIR}/scripts/preview.py <output-dir>
 ```
 
-`validate.py` outputs exact gzip size, spans/frame, run length, background ratio, and threshold recommendations. Since the full conversion is done, these are exact measurements. Present the size analysis. If any threshold is flagged, offer specific adjustments:
-- ⚠⚠: proactively suggest specific numbers ("reduce to 3 colors — estimated ~40% smaller")
-- ⚠: mention and ask whether to proceed or adjust
+Present the size analysis. If any threshold is flagged:
 
-### Step 8 — Import
+- ⚠⚠: proactively suggest a specific fix ("reduce to 3 colors — ~40% smaller")
+- ⚠: mention the tradeoff and ask whether to adjust
+
+---
+
+## Step 9 — Import
 
 OMNI → `/ascii` page → Import → Local folder → select the output directory.
 On name collision: OMNI will prompt to overwrite.
 
 ---
 
-## Background Rule
+## Background rule
 
-Plain `" "` spaces cost nothing. Do not span spaces unless the user explicitly wants a visible colored background fill.
+Background cells are written as plain spaces — no `<span>`. This is the
+biggest single span savings. `gif_info.py` auto-detects the background color.
+Confirm it in Step 1 — if the background is wrong, all other metrics suffer.
 
-- **Background class** = the most common quantized color class in the GIF. `gif_info.py` auto-detects it (confirmed in Step 3d).
-- Background cells are written as plain spaces in the output — no `<span>`.
-- This is the single biggest span savings: a GIF with 28% background cells saves 28% of all potential spans.
+Never span spaces unless the user explicitly wants a visible colored background.
 
 ---
 
-## RLE Rule (mandatory)
+## RLE rule (mandatory)
 
-`gif_to_frames.py` enforces this automatically — never emit per-character spans:
+`gif_to_frames.py` enforces RLE automatically:
 
 ```
 ✓  <span class="mid">@@@###</span>       ← 1 span, 6 chars
@@ -166,56 +295,40 @@ Plain `" "` spaces cost nothing. Do not span spaces unless the user explicitly w
 
 ---
 
-## Palette Size Guidance
+## Size thresholds
 
-- **Recommended**: 3–8 colors
-- **Above 8**: warn the user, show `estimate.py` span impact before proceeding
-- Fewer colors = longer RLE runs = fewer spans = smaller files + faster rendering
-
-Auto-assigned class names by luminance rank (darkest → brightest):
-
-| Count | Names |
-|-------|-------|
-| 2 | `dark`, `bright` |
-| 3 | `dark`, `mid`, `bright` |
-| 4 | `dark`, `mid`, `light`, `bright` |
-| 5 | `shadow`, `dark`, `mid`, `light`, `bright` |
-| 6 | `shadow`, `dark`, `mid`, `light`, `bright`, `highlight` |
-| 7+ | above + `c6`, `c7`, ... |
-
-Background class is excluded from `meta.json` palette (its cells are plain spaces).
+| Signal                             | Sev | Action                                         |
+| ---------------------------------- | --- | ---------------------------------------------- |
+| Avg spans/frame > 400              | ⚠   | Reduce palette colors                          |
+| Avg spans/frame > 400 AND FPS > 12 | ⚠⚠  | Reduce colors AND/OR FPS                       |
+| Avg run length < 3                 | ⚠   | Too fragmented — reduce palette or cols×rows   |
+| Avg run length < 2                 | ⚠⚠  | Severe fragmentation — strongly reduce palette |
+| Background ratio < 20%             | ⚠   | Check background color is correct              |
+| Overhead ratio > 50%               | ⚠   | Tag bytes dominate — reduce palette            |
+| Gzip > 500 KB                      | ⚠⚠  | Reduce FPS, cols×rows, or color count          |
+| Gzip 200–500 KB                    | ⚠   | Review if acceptable                           |
+| Frame count > 40                   | ⚠   | Consider reducing FPS                          |
+| Palette colors > 8                 | ⚠   | Monitor span count                             |
 
 ---
 
-## Size Recommendation Thresholds
+## Script reference
 
-Both `estimate.py` (pre-conversion) and `validate.py` (post-conversion) use these same thresholds:
-
-| Signal | Sev | Recommendation |
-|--------|-----|----------------|
-| Avg spans/frame > 400 | ⚠ | Reduce palette colors |
-| Avg spans/frame > 400 AND FPS > 12 | ⚠⚠ | Reduce colors AND/OR FPS |
-| Avg run length < 3 | ⚠ | Color regions too fragmented — reduce palette or cols×rows |
-| Avg run length < 2 | ⚠⚠ | Severe fragmentation — strongly reduce palette |
-| Background ratio < 20% | ⚠ | Verify background color is correct; more may be unspannable |
-| Overhead ratio > 50% | ⚠ | Tag bytes dominate — palette too large or background not unspanned |
-| Gzip > 500 KB | ⚠⚠ | Reduce FPS, cols×rows, or color count |
-| Gzip 200–500 KB | ⚠ | Review if smaller settings are acceptable |
-| Frame count > 40 | ⚠ | Consider reducing FPS (~linear savings) |
-| Palette colors > 8 | ⚠ | Above recommended range — monitor span count |
-
-⚠⚠ = proactively suggest specific numbers before proceeding
-⚠ = mention tradeoff, ask whether to adjust
+| Script                               | Purpose                                            | When              |
+| ------------------------------------ | -------------------------------------------------- | ----------------- |
+| `gif_info.py`                        | Analyze GIF, suggest sizes, detect bg              | Step 1 — always   |
+| `gif_info.py --json`                 | Same but machine-readable for `preview_compare.py` | Step 2            |
+| `preview_compare.py --mode sizes`    | Compare cols×rows options                          | Step 2 — optional |
+| `preview_compare.py --mode charsets` | Compare character sets                             | Step 3 — optional |
+| `preview_compare.py --mode palettes` | Compare color palettes                             | Step 4 — optional |
+| `estimate.py`                        | File size estimate                                 | Step 5 — always   |
+| `gif_to_frames.py`                   | Full conversion                                    | Step 6 — always   |
+| `validate.py`                        | Structural + size validation                       | Step 8 — always   |
+| `preview.py`                         | Text-mode frame playback                           | Step 8 — always   |
 
 ---
 
-## Output Location
+## Output location
 
 - If `$ARGUMENTS` contains a path, use it as the output directory
 - Otherwise: `./ascii-out/<animation-name>/`
-
----
-
-## Publishing to GitHub
-
-Push the output folder to a GitHub repository. Others can import by downloading/cloning and using OMNI's local import. Future: OMNI will support direct remote import from GitHub repos.

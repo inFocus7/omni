@@ -22,16 +22,16 @@ Exit codes:
   1 — error
 """
 
-import sys
+import argparse
+import json
+import math
 import os
 import re
-import math
-import json
-import argparse
-import subprocess
-import tempfile
-import shutil
 import statistics
+import subprocess
+import sys
+import tempfile
+from typing import Iterable
 
 try:
     from PIL import Image
@@ -182,12 +182,12 @@ def frame_to_char_grid(frame_pil, cols, rows, char_map, tmp_dir, frame_idx):
                     line = line[:cols]
                 char_grid.append(line)
             return char_grid
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"\n  Warning: ascii-image-converter failed on frame {frame_idx}: {e}", file=sys.stderr)
 
-    # Fallback: Pillow luminance mapping
+    # Fallback: Pillow luminance mapping (lower quality — install ascii-image-converter for best results)
     chars = char_map if char_map else " .',:;clodxkO0KXN"
-    small = frame_pil.convert('L').resize((cols, rows), Image.LANCZOS)
+    small = frame_pil.convert('L').resize((cols, rows), Image.Resampling.LANCZOS)
     pixels = list(small.getdata())
     char_grid = []
     for row in range(rows):
@@ -207,7 +207,7 @@ def get_color_samples(frames_pil, cols, rows):
     """
     all_colors = []
     for frame in frames_pil:
-        small = frame.convert('RGB').resize((cols, rows), Image.LANCZOS)
+        small = frame.convert('RGB').resize((cols, rows), Image.Resampling.LANCZOS)
         all_colors.append(list(small.getdata()))
     return all_colors
 
@@ -231,13 +231,19 @@ def global_quantize(all_color_grids, n_colors):
 
     quantized = img.quantize(colors=n_colors, method=Image.Quantize.MEDIANCUT)
     palette_raw = quantized.getpalette()
+    if not palette_raw:
+        raise ValueError("Quantization failed to produce a palette.")
+
     palette_rgbs = [
         (palette_raw[i * 3], palette_raw[i * 3 + 1], palette_raw[i * 3 + 2])
         for i in range(n_colors)
     ]
 
     # Split back into per-frame index lists
-    all_indices = list(quantized.getdata())[:n]
+    data = quantized.getdata()
+    if not isinstance(data, Iterable):
+        raise ValueError("Quantized image data is not iterable.")
+    all_indices = list(data)[:n]
     per_frame = []
     # Reconstruct per-frame index lists using frame sizes
     sizes = [len(g) for g in all_color_grids]

@@ -15,14 +15,12 @@ Controls:
   Ctrl+C to stop playback
 """
 
-import sys
-import os
-import json
-import re
-import time
-import math
 import argparse
-
+import json
+import os
+import re
+import sys
+import time
 
 TAG_RE = re.compile(r'<[^>]+>')
 SPAN_CLASS_RE = re.compile(r'<span\s+class="([^"]+)">', re.IGNORECASE)
