@@ -3717,3 +3717,149 @@ details[open] .ascii-import-summary::before {
     font-size: 0.8125rem;
     color: var(--text-2);
 }
+
+/* ── Find & Replace bar ───────────────────────────────────── */
+
+.ascii-replace-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.4rem 0.65rem;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+}
+
+.ascii-replace-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.ascii-replace-char-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.ascii-replace-char-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-xs);
+    background: var(--bg);
+    cursor: text;
+    color: var(--text);
+    user-select: none;
+    transition: border-color 0.15s;
+}
+
+.ascii-replace-char-preview.empty {
+    color: var(--text-3);
+    font-size: 0.8rem;
+}
+
+.ascii-replace-char-preview:hover {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border-2));
+}
+
+/* hidden input proxied through the preview span */
+.ascii-replace-char-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+    border: none;
+    padding: 0;
+}
+
+.ascii-replace-arrow {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-3);
+    flex-shrink: 0;
+}
+
+.ascii-replace-scope {
+    display: flex;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.ascii-replace-scope-btn {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.25rem 0.55rem;
+    background: none;
+    border: none;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
+}
+
+.ascii-replace-scope-btn + .ascii-replace-scope-btn {
+    border-left: 1px solid var(--border-2);
+}
+
+.ascii-replace-scope-btn.active {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.ascii-replace-scope-btn:hover:not(.active) {
+    background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+    color: var(--text);
+}
+
+.ascii-replace-apply {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.25rem 0.65rem;
+    height: 2rem;
+    box-sizing: border-box;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+
+.ascii-replace-apply:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.ascii-replace-apply:not(:disabled):hover {
+    opacity: 0.85;
+}
+
+.ascii-replace-hint {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-3);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.2s;
+}
+
+.ascii-replace-hint.success {
+    color: var(--add);
+}

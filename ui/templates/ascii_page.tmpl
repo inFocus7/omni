@@ -227,6 +227,10 @@
                         <button class="ascii-tool-btn" id="ascii-tool-onion" type="button" title="Onion skin">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
+                        <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
+                        <button class="ascii-tool-btn" id="ascii-tool-replace" type="button" title="Remap character (⌘H)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M4 8h11M12 5l3 3-3 3" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H9M12 19l-3-3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
                     </div>
                     <!-- Tool flyout: char + palette swatches, shown when pencil is active -->
                     <div class="ascii-tool-flyout" id="ascii-tool-flyout" style="display:none">
@@ -238,6 +242,27 @@
                         </select>
                     </div>
                     </div><!-- /.ascii-canvas-wrapper -->
+
+                    <!-- Remap character bar – shown when remap tool is toggled -->
+                    <div class="ascii-replace-bar" id="ascii-replace-bar" style="display:none" role="search" aria-label="Remap character">
+                        <span class="ascii-replace-label" aria-hidden="true">remap</span>
+                        <div class="ascii-replace-char-wrap">
+                            <span class="ascii-replace-char-preview empty" id="ascii-replace-from-preview" title="Click to edit" aria-hidden="true">·</span>
+                            <input type="text" id="ascii-replace-from" class="ascii-replace-char-input" maxlength="2" value="" aria-label="Find character" autocomplete="off" spellcheck="false">
+                        </div>
+                        <span class="ascii-replace-arrow" aria-hidden="true">→</span>
+                        <span class="ascii-replace-label" aria-hidden="true">→</span>
+                        <div class="ascii-replace-char-wrap">
+                            <span class="ascii-replace-char-preview empty" id="ascii-replace-to-preview" title="Click to edit (leave empty to erase)" aria-hidden="true">·</span>
+                            <input type="text" id="ascii-replace-to" class="ascii-replace-char-input" maxlength="2" value="" aria-label="Replace with character (empty = space)" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="ascii-replace-scope" role="group" aria-label="Replacement scope">
+                            <button class="ascii-replace-scope-btn active" data-scope="all" type="button">all frames</button>
+                            <button class="ascii-replace-scope-btn" data-scope="current" type="button">this frame</button>
+                        </div>
+                        <button class="ascii-replace-apply" id="ascii-replace-apply" type="button" disabled>Remap</button>
+                        <span class="ascii-replace-hint" id="ascii-replace-hint" aria-live="polite"></span>
+                    </div>
 
                     <!-- Timeline transport -->
                     <div class="ascii-timeline" id="ascii-timeline" style="display:none">

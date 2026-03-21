@@ -271,7 +271,7 @@
   function getMonoCharRatio(ctx) {
     if (_monoCharRatio !== null) return _monoCharRatio;
     const prev = ctx.font;
-    ctx.font = "100px monospace";
+    ctx.font = "100px 'JetBrains Mono', monospace";
     _monoCharRatio = ctx.measureText("M").width / 100;
     ctx.font = prev;
     return _monoCharRatio;
@@ -322,6 +322,11 @@
       this._resize();
       this._renderFrame(0);
 
+      // If fonts weren't ready yet, re-measure and re-render once they load
+      if (document.fonts.status !== "loaded") {
+        document.fonts.ready.then(() => this._resize());
+      }
+
       // Pause/resume on tab visibility
       this._onVisibility = () => {
         if (document.hidden) {
@@ -353,7 +358,7 @@
       this._fontSize = Math.max(1, Math.ceil(Math.max(fontByCols, fontByRows)));
 
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.ctx.font = `${this._fontSize}px monospace`;
+      this.ctx.font = `${this._fontSize}px 'JetBrains Mono', monospace`;
       this.ctx.textBaseline = "top";
 
       // Measure actual char dimensions
@@ -1883,6 +1888,14 @@
     const asciiToolFlyout = document.getElementById("ascii-tool-flyout");
     const asciiFlyoutChar = document.getElementById("ascii-flyout-char");
     const asciiSwatchRow = document.getElementById("ascii-swatch-row");
+    const asciiToolReplaceBtn = document.getElementById("ascii-tool-replace");
+    const replaceBarEl = document.getElementById("ascii-replace-bar");
+    const replaceFromInput = document.getElementById("ascii-replace-from");
+    const replaceToInput = document.getElementById("ascii-replace-to");
+    const replaceFromPreview = document.getElementById("ascii-replace-from-preview");
+    const replaceToPreview = document.getElementById("ascii-replace-to-preview");
+    const replaceApplyBtn = document.getElementById("ascii-replace-apply");
+    const replaceHintEl = document.getElementById("ascii-replace-hint");
     const resizeHandle = document.getElementById("ascii-modal-resize-handle");
     const sidebar = modal?.querySelector(".ascii-modal-sidebar");
     const fitBtn = document.getElementById("ascii-fit-btn");
@@ -1909,6 +1922,7 @@
     let gridRenderTimer = null;
     let onionSkinEnabled = false;
     let activeTool = "cursor"; // 'cursor' | 'pencil'
+    let replaceScope = "all"; // 'all' | 'current'
 
     // ── ICG frame helpers ───────────────────────────────
     function makeBlankICGFrame(cols, rows) {
@@ -2400,6 +2414,7 @@
           parseInt(rowsInput?.value, 10) || 24,
         );
       }
+      if (replaceScope === "current") updateReplaceBar();
     }
 
     function showTimeline() {
@@ -2685,6 +2700,213 @@
         if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
       });
 
+    // ── Find & Replace bar ────────────────────────────────
+
+    function getReplaceFromChar() {
+      return Array.from(replaceFromInput?.value || "")[0] ?? null;
+    }
+
+    function getReplaceToChar() {
+      const val = replaceToInput?.value ?? "";
+      if (val === "") return " "; // empty = erase (replace with space)
+      return Array.from(val)[0] ?? " ";
+    }
+
+    function countReplaceMatches(fromChar) {
+      if (!fromChar || localFrames.length === 0) return 0;
+      const frames =
+        replaceScope === "current"
+          ? [localFrames[currentFrameIndex]]
+          : localFrames;
+      let count = 0;
+      for (const frame of frames) {
+        for (const ch of frame.chars) {
+          if (ch === fromChar) count++;
+        }
+      }
+      return count;
+    }
+
+    function updateReplaceBar() {
+      if (!replaceBarEl || replaceBarEl.style.display === "none") return;
+      const fromChar = getReplaceFromChar();
+      const hasFrom = fromChar !== null && fromChar !== "";
+
+      if (replaceFromPreview) {
+        replaceFromPreview.textContent = hasFrom ? fromChar : "·";
+        replaceFromPreview.classList.toggle("empty", !hasFrom);
+      }
+
+      const toVal = replaceToInput?.value ?? "";
+      const hasTo = toVal !== "";
+      if (replaceToPreview) {
+        replaceToPreview.textContent = hasTo
+          ? Array.from(toVal)[0] ?? "·"
+          : "·";
+        replaceToPreview.classList.toggle("empty", !hasTo);
+      }
+
+      if (replaceHintEl) {
+        replaceHintEl.className = "ascii-replace-hint";
+        replaceHintEl.textContent = "";
+      }
+
+      if (!hasFrom) {
+        if (replaceApplyBtn) replaceApplyBtn.disabled = true;
+        return;
+      }
+
+      const count = countReplaceMatches(fromChar);
+      if (replaceApplyBtn) replaceApplyBtn.disabled = count === 0;
+
+      if (replaceHintEl) {
+        if (count === 0) {
+          replaceHintEl.textContent = "no matches";
+        } else {
+          const n = localFrames.length;
+          const scopeLabel =
+            replaceScope === "current"
+              ? "in this frame"
+              : `across ${n} frame${n === 1 ? "" : "s"}`;
+          replaceHintEl.textContent = `${count} match${count === 1 ? "" : "es"} ${scopeLabel}`;
+        }
+      }
+    }
+
+    function openReplaceBar() {
+      if (!replaceBarEl) return;
+      replaceBarEl.style.display = "";
+      if (asciiToolReplaceBtn) asciiToolReplaceBtn.classList.add("active");
+      updateReplaceBar();
+      replaceFromPreview?.focus();
+      replaceFromInput?.focus();
+    }
+
+    function closeReplaceBar() {
+      if (!replaceBarEl) return;
+      replaceBarEl.style.display = "none";
+      if (asciiToolReplaceBtn) asciiToolReplaceBtn.classList.remove("active");
+    }
+
+    if (asciiToolReplaceBtn) {
+      asciiToolReplaceBtn.addEventListener("click", () => {
+        const isOpen = replaceBarEl?.style.display !== "none";
+        if (isOpen) {
+          closeReplaceBar();
+        } else {
+          openReplaceBar();
+        }
+      });
+    }
+
+    // Click on char preview box focuses the hidden backing input
+    [
+      [replaceFromPreview, replaceFromInput],
+      [replaceToPreview, replaceToInput],
+    ].forEach(([preview, input]) => {
+      if (preview && input)
+        preview.addEventListener("click", () => {
+          input.focus();
+          input.select();
+        });
+    });
+
+    // Inputs: clamp to 1 codepoint, sync preview
+    [replaceFromInput, replaceToInput].forEach((input) => {
+      if (!input) return;
+      input.addEventListener("focus", () => input.select());
+      input.addEventListener("input", () => {
+        const cps = Array.from(input.value);
+        if (cps.length > 1) input.value = cps[cps.length - 1];
+        updateReplaceBar();
+      });
+    });
+
+    // Scope toggle buttons
+    document.querySelectorAll(".ascii-replace-scope-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document
+          .querySelectorAll(".ascii-replace-scope-btn")
+          .forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        replaceScope = btn.dataset.scope;
+        updateReplaceBar();
+      });
+    });
+
+    // Apply replacement
+    if (replaceApplyBtn) {
+      replaceApplyBtn.addEventListener("click", async () => {
+        const fromChar = getReplaceFromChar();
+        if (!fromChar) return;
+        const toChar = getReplaceToChar();
+
+        replaceApplyBtn.disabled = true;
+        replaceApplyBtn.textContent = "…";
+        if (replaceHintEl) {
+          replaceHintEl.textContent = "";
+          replaceHintEl.className = "ascii-replace-hint";
+        }
+
+        try {
+          const frameIndex =
+            replaceScope === "current" ? currentFrameIndex : null;
+          const res = await fetch("/api/ascii/replace-char", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: fromChar,
+              to: toChar,
+              class_table: localClassTable,
+              frames: serializeICGFrames(),
+              frame_index: frameIndex,
+            }),
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Remap failed");
+          }
+
+          const data = await res.json();
+          const updated = data.frames || [];
+          updated.forEach((f, i) => {
+            if (i < localFrames.length) {
+              localFrames[i] = {
+                chars: f.chars,
+                colors: Uint8Array.from(atob(f.colors), (c) =>
+                  c.charCodeAt(0),
+                ),
+              };
+            }
+          });
+
+          renderFrameLocally(currentFrameIndex);
+
+          const n = data.count || 0;
+          if (replaceHintEl) {
+            replaceHintEl.textContent =
+              n === 0
+                ? "nothing remapped"
+                : `remapped ${n} occurrence${n === 1 ? "" : "s"}`;
+            replaceHintEl.classList.toggle("success", n > 0);
+          }
+
+          // After 2s, refresh the match count
+          setTimeout(() => updateReplaceBar(), 2000);
+        } catch (err) {
+          if (errorsEl) errorsEl.textContent = err.message;
+          updateReplaceBar();
+        } finally {
+          replaceApplyBtn.textContent = "Remap";
+          // Re-evaluate disabled state
+          const from = getReplaceFromChar();
+          replaceApplyBtn.disabled =
+            !from || countReplaceMatches(from) === 0;
+        }
+      });
+    }
+
     // Flyout char display: click to focus hidden input
     if (asciiFlyoutChar)
       asciiFlyoutChar.addEventListener("click", () => toolChar?.focus());
@@ -2878,6 +3100,13 @@
         previewRo = null;
       }
       activeTool = "cursor";
+      closeReplaceBar();
+      if (replaceFromInput) replaceFromInput.value = "";
+      if (replaceToInput) replaceToInput.value = "";
+      replaceScope = "all";
+      document.querySelectorAll(".ascii-replace-scope-btn").forEach((b, i) => {
+        b.classList.toggle("active", i === 0);
+      });
       if (asciiToolFlyout) asciiToolFlyout.style.display = "none";
       overlay.classList.remove("open");
       if (modal) modal.classList.remove("editor-active");
@@ -2901,8 +3130,19 @@
       if (e.target === overlay) closeModal();
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && overlay.classList.contains("open"))
-        closeModal();
+      if (!overlay.classList.contains("open")) return;
+      if (e.key === "Escape") {
+        if (replaceBarEl && replaceBarEl.style.display !== "none") {
+          closeReplaceBar();
+        } else {
+          closeModal();
+        }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "h") {
+        e.preventDefault();
+        asciiToolReplaceBtn?.click();
+      }
     });
 
     function resetModal() {

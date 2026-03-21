@@ -44,6 +44,7 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 	r.POST("/api/ascii/animations/preview", h.Preview)
 	r.POST("/api/ascii/normalize", h.Normalize)
 	r.POST("/api/ascii/would-truncate", h.WouldTruncate)
+	r.POST("/api/ascii/replace-char", h.ReplaceChar)
 	r.POST("/api/ascii/import", h.Import)
 	r.POST("/api/ascii/export", h.Export)
 }
@@ -257,6 +258,66 @@ func (h *AsciiAPI) WouldTruncate(c *gin.Context) {
 	icg := &store.ICGData{ClassTable: req.ClassTable, Frames: req.Frames}
 	truncates := store.WouldTruncateICG(icg, req.Cols, req.Rows)
 	c.JSON(http.StatusOK, gin.H{"truncates": truncates})
+}
+
+// ReplaceChar replaces all occurrences of one character with another across
+// the provided frames (or a single frame when frame_index is set).
+// Colors are preserved — only the character at each cell changes.
+func (h *AsciiAPI) ReplaceChar(c *gin.Context) {
+	var req struct {
+		From       string           `json:"from"`
+		To         string           `json:"to"`
+		Frames     []store.ICGFrame `json:"frames"`
+		FrameIndex *int             `json:"frame_index"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	fromRunes := []rune(req.From)
+	if len(fromRunes) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from character is required"})
+		return
+	}
+	fromRune := fromRunes[0]
+	var toRune rune
+	if toRunes := []rune(req.To); len(toRunes) > 0 {
+		toRune = toRunes[0]
+	} else {
+		toRune = ' '
+	}
+
+	frames := req.Frames
+	total := 0
+	for i := range frames {
+		if req.FrameIndex != nil && i != *req.FrameIndex {
+			continue
+		}
+		newChars, n := replaceRuneInString(frames[i].Chars, fromRune, toRune)
+		frames[i].Chars = newChars
+		total += n
+	}
+	c.JSON(http.StatusOK, gin.H{"frames": frames, "count": total})
+}
+
+// replaceRuneInString replaces every occurrence of from with to in s,
+// returning the new string and the number of replacements made.
+func replaceRuneInString(s string, from, to rune) (string, int) {
+	if from == to {
+		return s, 0
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	count := 0
+	for _, r := range s {
+		if r == from {
+			b.WriteRune(to)
+			count++
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), count
 }
 
 // Delete removes an animation from the store, registry, and cache.
