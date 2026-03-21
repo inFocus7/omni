@@ -2712,6 +2712,56 @@ a:hover {
     min-width: 0;
 }
 
+.ascii-palette-alpha {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 4rem;
+    height: 16px;
+    background: transparent;
+    flex-shrink: 0;
+    cursor: pointer;
+    outline: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ascii-palette-alpha::-webkit-slider-runnable-track {
+    height: 2px;
+    background: var(--border-2);
+    border-radius: 1px;
+}
+
+.ascii-palette-alpha::-moz-range-track {
+    height: 2px;
+    background: var(--border-2);
+    border-radius: 1px;
+}
+
+.ascii-palette-alpha::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--text-2);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ascii-palette-alpha:hover::-webkit-slider-thumb {
+    background: var(--text);
+}
+
+.ascii-palette-alpha::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-2);
+    cursor: pointer;
+    border: none;
+}
+
 .ascii-palette-color {
     width: 1.75rem;
     height: 1.6rem;

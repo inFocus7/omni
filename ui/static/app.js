@@ -267,6 +267,17 @@
   // Wire format: { palette: string[], cols, rows, frames: [{chars, colors}] }
   // where colors is base64-encoded Uint8Array indexing into palette.
 
+  let _monoCharRatio = null;
+  function getMonoCharRatio(ctx) {
+    if (_monoCharRatio !== null) return _monoCharRatio;
+    const prev = ctx.font;
+    ctx.font = "100px monospace";
+    _monoCharRatio = ctx.measureText("M").width / 100;
+    ctx.font = prev;
+    return _monoCharRatio;
+  }
+  document.fonts.ready.then(() => { _monoCharRatio = null; });
+
   class AsciiCanvasRenderer {
     constructor(container, data, fps) {
       this.container = container;
@@ -335,12 +346,11 @@
       this._canvasW = w;
       this._canvasH = h;
 
-      // Cover-fit: scale font so content fills the container completely.
-      // Use 0.6 as the monospace char-width ratio (matches CSS sizing).
-      const fontByCols = w / (this.cols * 0.6);
+      // Cover-fit: dominant axis overflows, other is clipped.
+      const charRatio = getMonoCharRatio(this.ctx);
+      const fontByCols = w / (this.cols * charRatio);
       const fontByRows = h / this.rows;
-      this._fontSize = Math.floor(Math.max(fontByCols, fontByRows));
-      if (this._fontSize < 1) this._fontSize = 1;
+      this._fontSize = Math.max(1, Math.ceil(Math.max(fontByCols, fontByRows)));
 
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       this.ctx.font = `${this._fontSize}px monospace`;
@@ -2122,13 +2132,46 @@
       return "#000000";
     }
 
+    // Returns { hex: '#rrggbb', alpha: 0-100 } from any supported color string.
+    function parseColorParts(color) {
+      if (!color) return { hex: "#000000", alpha: 100 };
+      const hex8 = color.match(/^#([0-9a-f]{6})([0-9a-f]{2})$/i);
+      if (hex8) {
+        return {
+          hex: "#" + hex8[1],
+          alpha: Math.round((parseInt(hex8[2], 16) / 255) * 100),
+        };
+      }
+      const rgba = color.match(
+        /^rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)$/i,
+      );
+      if (rgba) {
+        const hex =
+          "#" +
+          [rgba[1], rgba[2], rgba[3]]
+            .map((n) => parseInt(n, 10).toString(16).padStart(2, "0"))
+            .join("");
+        return { hex, alpha: Math.round(parseFloat(rgba[4]) * 100) };
+      }
+      return { hex: colorToHex(color), alpha: 100 };
+    }
+
+    function buildPaletteColor(hex, alphaPct) {
+      if (alphaPct >= 100) return hex;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${(alphaPct / 100).toFixed(2)})`;
+    }
+
     function addPaletteRow(cls, color) {
-      const hex = colorToHex(color);
+      const { hex, alpha } = parseColorParts(color);
       const row = document.createElement("div");
       row.className = "ascii-palette-row";
       row.innerHTML = `
         <input type="text" class="app-input ascii-palette-class" placeholder="class-name" value="${escapeHtml(cls || "")}">
         <input type="color" class="ascii-palette-color" value="${hex}">
+        <input type="range" class="ascii-palette-alpha" min="0" max="100" value="${alpha}" title="Opacity: ${alpha}%">
         <button class="ascii-palette-remove" type="button" title="Remove">&times;</button>
       `;
       row
@@ -2137,6 +2180,11 @@
           row.remove();
           rebuildToolClassSelect();
           if (localFrames.length > 0) renderFrameLocally(currentFrameIndex);
+        });
+      const alphaSlider = row.querySelector(".ascii-palette-alpha");
+      if (alphaSlider)
+        alphaSlider.addEventListener("input", () => {
+          alphaSlider.title = `Opacity: ${alphaSlider.value}%`;
         });
       if (paletteRowsEl) paletteRowsEl.appendChild(row);
       rebuildToolClassSelect();
@@ -2152,8 +2200,11 @@
       if (!paletteRowsEl) return palette;
       paletteRowsEl.querySelectorAll(".ascii-palette-row").forEach((row) => {
         const cls = row.querySelector(".ascii-palette-class")?.value.trim();
-        const color = row.querySelector(".ascii-palette-color")?.value;
-        if (cls) palette[cls] = color;
+        const hex = row.querySelector(".ascii-palette-color")?.value || "#000000";
+        const alphaInput = row.querySelector(".ascii-palette-alpha");
+        const alphaParsed = alphaInput ? parseInt(alphaInput.value, 10) : NaN;
+        const alpha = isNaN(alphaParsed) ? 100 : Math.max(0, Math.min(100, alphaParsed));
+        if (cls) palette[cls] = buildPaletteColor(hex, alpha);
       });
       return palette;
     }
@@ -2184,8 +2235,11 @@
       if (paletteRowsEl) {
         paletteRowsEl.querySelectorAll(".ascii-palette-row").forEach((row) => {
           const cls = row.querySelector(".ascii-palette-class")?.value.trim();
-          const color =
-            row.querySelector(".ascii-palette-color")?.value || "#ffffff";
+          const hex = row.querySelector(".ascii-palette-color")?.value || "#ffffff";
+          const alphaInput = row.querySelector(".ascii-palette-alpha");
+          const alphaParsed = alphaInput ? parseInt(alphaInput.value, 10) : NaN;
+          const alpha = isNaN(alphaParsed) ? 100 : Math.max(0, Math.min(100, alphaParsed));
+          const color = buildPaletteColor(hex, alpha);
           if (!cls) return;
           const btn = document.createElement("button");
           btn.className = "ascii-swatch";
