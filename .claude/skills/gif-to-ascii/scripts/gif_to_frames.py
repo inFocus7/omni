@@ -251,42 +251,41 @@ def global_quantize(all_color_grids, n_colors):
     return palette_rgbs, per_frame
 
 
-def rle_row(chars, classes, bg_class, cols):
+def build_icg_frame(char_grid, cell_classes, class_to_idx, cols, rows):
     """
-    Build HTML string for one row with RLE span grouping.
-    Background cells (bg_class or None) are written as plain chars.
+    Build an ICG frame: { chars: str, colors: base64-encoded bytes }.
+    char_grid is list of row strings, cell_classes is a flat list of class names.
     """
-    result = []
-    i = 0
-    n = min(len(chars), len(classes), cols)
-    while i < n:
-        cls = classes[i]
-        j = i
-        while j < n and classes[j] == cls:
-            j += 1
-        text = chars[i:j]
-        if cls == bg_class or cls is None:
-            result.append(text)
-        else:
-            result.append(f'<span class="{cls}">{text}</span>')
-        i = j
-    # Pad if short
-    remaining = cols - n
-    if remaining > 0:
-        result.append(' ' * remaining)
-    return ''.join(result)
+    import base64
+    lines = []
+    colors = bytearray(cols * rows)
+    for r in range(rows):
+        row_chars = char_grid[r] if r < len(char_grid) else ' ' * cols
+        # Pad or truncate to cols
+        if len(row_chars) < cols:
+            row_chars = row_chars + ' ' * (cols - len(row_chars))
+        elif len(row_chars) > cols:
+            row_chars = row_chars[:cols]
+        lines.append(row_chars)
+        for c in range(cols):
+            cls = cell_classes[r * cols + c] if r * cols + c < len(cell_classes) else ""
+            colors[r * cols + c] = class_to_idx.get(cls, 0)
+    return {
+        "chars": '\n'.join(lines),
+        "colors": base64.b64encode(bytes(colors)).decode('ascii'),
+    }
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
-def frame_stats(frames_html):
-    """Compute quick span stats over all frames."""
-    total_spans = sum(f.count('<span') for f in frames_html)
-    avg_spans = total_spans / len(frames_html) if frames_html else 0
-    total_visible = sum(len(re.sub(r'<[^>]+>', '', f).replace('\n', '')) for f in frames_html)
-    avg_run = (total_visible / total_spans) if total_spans > 0 else float('inf')
-    total_raw = sum(len(f.encode('utf-8')) for f in frames_html)
-    return avg_spans, avg_run, total_raw
+def frame_stats_icg(icg_data):
+    """Compute quick stats over ICG frames."""
+    import base64
+    n_frames = len(icg_data["frames"])
+    n_classes = len(icg_data["class_table"])
+    total_chars = sum(len(f["chars"].replace('\n', '')) for f in icg_data["frames"])
+    total_raw = sum(len(f["chars"].encode('utf-8')) + len(base64.b64decode(f["colors"])) for f in icg_data["frames"])
+    return n_frames, n_classes, total_chars, total_raw
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -338,9 +337,13 @@ def main():
 
         # ── Color processing ──────────────────────────────────────────────────
         if args.grayscale:
-            frames_html = []
+            # Build ICG with no colors (all index 0 = default)
+            class_table = [""]
+            class_to_idx = {"": 0}
+            icg_frames = []
             for grid in char_grids:
-                frames_html.append('\n'.join(grid))
+                cell_classes = [""] * (args.cols * args.rows)
+                icg_frames.append(build_icg_frame(grid, cell_classes, class_to_idx, args.cols, args.rows))
             palette_for_meta = {}
             bg_class = None
             named_palette = []
@@ -369,17 +372,25 @@ def main():
             # Build idx→class mapping
             idx_to_class = {orig_idx: cls_name for cls_name, orig_idx, _ in named_palette}
 
-            # Build frame HTML strings
-            print("Building frame HTML with RLE spans...")
-            frames_html = []
+            # Build class_table: index 0 = "" (default/bg), then each non-bg class
+            class_table = [""]
+            class_to_idx = {"": 0}
+            for cls_name, orig_idx, _ in named_palette:
+                if cls_name != bg_class:
+                    class_to_idx[cls_name] = len(class_table)
+                    class_table.append(cls_name)
+            # Map bg_class to index 0 (default)
+            if bg_class:
+                class_to_idx[bg_class] = 0
+
+            # Build ICG frames
+            print("Building ICG frames...")
+            icg_frames = []
             for fi, (grid, indices) in enumerate(zip(char_grids, per_frame_indices)):
-                cell_classes = [idx_to_class.get(pi, bg_class) for pi in indices]
-                lines = []
-                for r in range(args.rows):
-                    row_chars = grid[r]
-                    row_classes = cell_classes[r * args.cols:(r + 1) * args.cols]
-                    lines.append(rle_row(row_chars, row_classes, bg_class, args.cols))
-                frames_html.append('\n'.join(lines))
+                cell_classes = [idx_to_class.get(pi, "") for pi in indices]
+                # Map bg_class cells to "" (default)
+                cell_classes = ["" if c == bg_class else c for c in cell_classes]
+                icg_frames.append(build_icg_frame(grid, cell_classes, class_to_idx, args.cols, args.rows))
 
             # Build palette for meta.json (exclude background class)
             palette_for_meta = {}
@@ -400,9 +411,13 @@ def main():
         size_str = size_match.group(1) if size_match else "1x1"
     frames_filename = f"frames-{size_str}.json"
 
+    icg_data = {
+        "class_table": class_table,
+        "frames": icg_frames,
+    }
     frames_path = os.path.join(args.out, frames_filename)
     with open(frames_path, 'w', encoding='utf-8') as f:
-        json.dump(frames_html, f, ensure_ascii=False, indent=2)
+        json.dump(icg_data, f, ensure_ascii=False)
 
     fps_int = max(1, round(actual_fps))
     meta = {
@@ -425,27 +440,24 @@ def main():
         json.dump(meta, f, indent=2)
 
     # ── Print summary ─────────────────────────────────────────────────────────
-    avg_spans, avg_run, total_raw = frame_stats(frames_html)
+    n_icg_frames, n_classes, total_chars, total_raw = frame_stats_icg(icg_data)
 
-    print(f"\nConverted {n_frames} frames ({args.cols}×{args.rows}, "
+    print(f"\nConverted {n_icg_frames} frames ({args.cols}×{args.rows}, "
           f"{n_colors if not args.grayscale else 0} colors, {fps_int} FPS)")
     print(f"Output: {os.path.abspath(args.out)}/")
+    print(f"Format: ICG (Indexed Color Grid) — {n_classes} class table entries")
     print()
 
     if not args.grayscale and named_palette:
         print("Final palette (written to meta.json):")
         for cls_name, orig_idx, rgb in sorted(named_palette, key=lambda x: luminance(*x[2])):
             hex_col = rgb_to_hex(*rgb)
-            bg_note = "  (background — unspanned)" if cls_name == bg_class else ""
+            bg_note = "  (background — index 0)" if cls_name == bg_class else ""
             print(f"  {cls_name:<10} → {hex_col}{bg_note}")
         print()
 
     print("Stats (run validate.py for exact size analysis):")
-    print(f"  Avg spans/frame: {avg_spans:.0f}")
-    if avg_run == float('inf'):
-        print("  Avg run length:  n/a (no spans)")
-    else:
-        print(f"  Avg run length:  {avg_run:.1f} chars")
+    print(f"  Class table:     {n_classes} entries")
     print(f"  Total raw size:  {total_raw / 1024:.1f} KB")
     print()
 

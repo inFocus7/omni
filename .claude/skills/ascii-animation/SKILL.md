@@ -13,7 +13,7 @@ allowed-tools:
 
 ## Purpose
 
-This skill creates OMNI-importable ASCII animation folders — either a single animation or a multi-animation pack. It guides the user through a conversation to gather requirements, then generates the correct folder structure, `meta.json`, `frames-*.json`, and optionally `pack.json`. All output validates cleanly against OMNI's import pipeline.
+This skill creates OMNI-importable ASCII animation folders — either a single animation or a multi-animation pack. It guides the user through a conversation to gather requirements, then generates the correct folder structure, `meta.json`, `frames-*.json` (in ICG format), and optionally `pack.json`. All output validates cleanly against OMNI's import pipeline.
 
 ---
 
@@ -90,12 +90,19 @@ Present the fit suggestions (keep-rows, keep-cols, balanced) and let the user ch
 - Size format: `WxH` (e.g. `1x1`, `2x2`)
 - `frames_file` convention: `frames-<size>.json`
 
-### frames-<size>.json
+### frames-\<size\>.json (ICG format)
 ```json
-["frame0_html_string", "frame1_html_string", ...]
+{
+  "class_table": ["", "ring", "spark"],
+  "frames": [
+    { "chars": "  ;;====...\n  ...", "colors": "AABBBCCaaa..." }
+  ]
+}
 ```
-- JSON array of strings, one per frame
-- At least 1 frame required
+- `class_table[0]` is always `""` (default text color, no palette class)
+- `class_table[1+]` are palette class names from `meta.json`
+- `chars`: plain text with `\n`-separated rows. Exactly `rows` lines, each exactly `cols` characters. No HTML, no entities — raw unicode.
+- `colors`: base64-encoded byte array. Length = `cols × rows`. Each byte indexes into `class_table`.
 
 ### pack.json (multi-animation bundle only)
 ```json
@@ -117,88 +124,92 @@ Present the fit suggestions (keep-rows, keep-cols, balanced) and let the user ch
 
 ## Frame Construction Rules
 
-**This is the most critical section.** Every frame must be an HTML string satisfying these constraints:
+**This is the most critical section.** Every frame must have `chars` and `colors` fields satisfying these constraints:
 
-### Dimension rule (MUST follow exactly)
-- Each frame = `rows` lines joined by `\n`
-- Each line MUST contain exactly `cols` **visible characters**
-- Visible chars = text content only, **not counting HTML tag characters**
+### Chars dimension rule (MUST follow exactly)
+- `chars` = `rows` lines of plain text joined by `\n`
+- Each line MUST contain exactly `cols` characters
+- Characters are raw unicode — no HTML tags, no HTML entities
 - Pad short lines with spaces on the right
 
-### Allowed HTML
-- `<span class="paletteName">text</span>` — for coloring text
-- `<br>` — generates a visual line break (use `\n` for the programmatic line separator instead)
-- All other tags are stripped or forbidden
+### Colors rule (MUST follow exactly)
+- `colors` = base64-encoded byte array
+- Length when decoded = `cols × rows` bytes
+- Each byte is an index into `class_table` (0 to len(class_table)-1)
+- Byte 0 = default text color (no palette class)
 
-### Forbidden
-- `<script>`, `<style>`, `<svg>`, `<iframe>`, `<object>`, `<embed>`, `<math>`, `<template>` — **stripped entirely including content**
-- `<br>` should NOT replace `\n` newlines — use `\n` as the line separator
+### Color resolution
+To get the color for cell at (row, col):
+1. `colorByte = colors[row * cols + col]`
+2. `className = class_table[colorByte]`
+3. `cssColor = palette[className]` (from meta.json)
+4. If `className` is `""` or not in palette → use default text color
 
 ### Practical construction
-1. Design the art as a `cols × rows` grid of visible characters
-2. For colored regions: wrap the visible characters in `<span class="className">...</span>`
-3. Uncolored spaces count as visible characters — always pad to `cols`
-4. Join the `rows` line strings with `\n`
+1. Design the art as a `cols × rows` grid of visible characters (plain text)
+2. Build a parallel `cols × rows` grid of color indices (bytes)
+3. Base64-encode the flattened color grid
+4. Assemble `{"chars": ..., "colors": ...}`
 
-### Example (cols=10, rows=3, palette={"hi": "#ff0"})
+### Example (cols=10, rows=3, palette={"hi": "#ff0"}, class_table=["", "hi"])
 ```
-line 0: "          "  (10 spaces)
-line 1: "  <span class=\"hi\">hello</span>    "  → visible = 2 + 5 + 3 = 10 ✓
-line 2: "          "  (10 spaces)
-```
-Frame string: `"          \n  <span class=\"hi\">hello</span>    \n          "`
+chars line 0: "          "  (10 spaces)
+chars line 1: "  hello   "  → 2 + 5 + 3 = 10 ✓
+chars line 2: "          "  (10 spaces)
 
-> Worked examples with character counting: see `ref/frame-construction.md`
+colors (30 bytes):
+  row 0: [0,0,0,0,0,0,0,0,0,0]
+  row 1: [0,0,1,1,1,1,1,0,0,0]  ← "hello" colored with class_table[1]="hi"
+  row 2: [0,0,0,0,0,0,0,0,0,0]
+```
+
+> Worked examples with byte-level detail: see `ref/frame-construction.md`
 
 ---
 
 ## Background Rule
 
-Plain spaces `" "` are **free** — they cost zero bytes, need no span, and are invisible. This is the default for all empty cells.
+Default-colored cells (byte 0) are **free** — they require no palette class and render in the default text color. Space characters with byte 0 are invisible background.
 
-**Never span spaces unless the user explicitly asks for a colored background fill.** Spanned spaces are the #1 source of span bloat. Every unneeded background span wastes ~24 bytes per character and adds DOM nodes the browser must render on every frame update.
+**Never color spaces unless the user explicitly asks for a colored background fill.** Coloring spaces wastes color data and increases file size.
 
 ```
-Good:  "     <span class="hi">HELLO</span>     "   ← spaces outside span = free
-Bad:   "<span class="bg">     </span><span class="hi">HELLO</span><span class="bg">     </span>"  ← spans on spaces = waste
+Good:  chars="     HELLO     ", colors=[0,0,0,0,0,1,1,1,1,1,0,0,0,0,0]  ← spaces use byte 0
+Bad:   chars="     HELLO     ", colors=[2,2,2,2,2,1,1,1,1,1,2,2,2,2,2]  ← spaces use a bg color = waste
 ```
 
-**Optional background color**: if the user explicitly wants a colored fill behind the art, define a `bg` palette class and wrap spaces in `<span class="bg"> </span>`. This is intentional and valid — `validate.py` will not flag it. Just confirm the user asked for it.
+**Optional background color**: if the user explicitly wants a colored fill, add a `bg` class to `class_table` and palette, then use that index for space cells. This is valid — `validate.py` will not flag it.
 
 ---
 
 ## Drawing Efficiency
 
-These principles apply **while generating frames**. Following them produces smaller files and faster rendering without sacrificing visual quality.
+These principles apply **while generating frames**. Following them produces smaller files without sacrificing visual quality.
 
-**1. Group same-color characters together horizontally.**
-Consecutive characters of the same palette class collapse into one `<span>` (run-length encoding). Design color regions as horizontal blocks:
-- `<span class="mid">############</span>` = 1 span for 12 chars ✓
-- `<span class="mid">#</span><span class="mid">#</span>...` = 12 spans for 12 chars ✗
+**1. Group same-color cells together.**
+Regions of the same color index compress well with gzip. Design color regions as broad blocks.
 
 **2. Use 3–5 colors unless the design genuinely needs more.**
-Fewer colors = longer runs = fewer spans = smaller file. Before adding a 6th color, ask: does it meaningfully improve the animation, or just add noise?
+Fewer classes = simpler color grid = better gzip compression.
 
 **3. Prefer wide color regions over fine per-character detail.**
-A full row in one color = 1 span. Alternating colors per character = up to `cols` spans. Match color granularity to what the animation actually needs.
+A full row at one color index compresses much better than alternating indices per cell.
 
-**4. Validate always and review the size analysis.**
-`validate.py` reports exact gzip size, spans/frame, and run length after writing files. If anything is flagged, offer to revise before the user imports. See the Workflow section for threshold guidance.
+**4. Color cycling is cheap.**
+If only the colors change between frames (chars stay the same), gzip compression is very effective because the chars data is identical.
+
+**5. Validate always and review the size analysis.**
+`validate.py` reports exact gzip size and metrics after writing files. If anything is flagged, offer to revise before the user imports.
 
 ### Size recommendation thresholds (from validate.py)
 
 | Signal | Recommendation |
 |--------|----------------|
-| Avg spans/frame > 400 | Reduce palette colors |
-| Avg spans/frame > 400 AND FPS > 12 | Reduce colors AND/OR FPS |
-| Avg run length < 3 | Color regions too fragmented — reduce palette or cols×rows |
-| Avg run length < 2 | Severe fragmentation — strongly reduce palette |
-| Background ratio < 20% | Verify background is unspanned; more cells may be left as plain spaces |
-| Overhead ratio > 50% | Tag bytes dominate — reduce palette or unspan more background |
 | Gzip > 500 KB | Reduce FPS, cols×rows, or color count |
 | Gzip 200–500 KB | Review whether smaller settings are acceptable |
 | Frame count > 40 | Consider reducing target FPS (~linear savings) |
-| Palette colors > 8 | Above recommended range — monitor span count |
+| class_table > 8 entries | Above recommended range — monitor file size |
+| Avg colors/frame > 5 KB | Reduce cols×rows or class_table entries |
 
 ---
 
@@ -234,13 +245,13 @@ rows ≈ round(cols / k)
 fontSize = floor(max(pxW / (cols * 0.6), pxH / rows))
 ```
 
-The dashboard uses **cover-fit**: the font scales so the animation fills the widget completely, with `overflow: hidden` clipping any excess. This eliminates blank padding around the animation.
+The dashboard uses **cover-fit**: the font scales so the animation fills the widget completely, with `overflow: hidden` clipping any excess.
 
-**Perfect fit (zero clipping):** when the animation's aspect ratio exactly matches the widget cell, neither dimension overflows:
+**Perfect fit (zero clipping):** when the animation's aspect ratio exactly matches the widget cell:
 ```
 cols * 0.6 / rows  ==  pxW / pxH
 ```
-`fit.py`'s **balanced** suggestion targets this ratio. If you use it, the animation fills the widget with no clipping at any screen size. This is especially important for animation sets that tie into one another visually — design to the balanced option and keep meaningful content away from the outer ~5% of edges as a safe zone.
+`fit.py`'s **balanced** suggestion targets this ratio.
 
 Use `fit.py` to compute suggestions automatically. Always run it before generating frames.
 
@@ -266,7 +277,30 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/fit.py <WxH>
 ```
 
 ### 3. Generate files
-Write `meta.json` and `frames-<size>.json` (and `pack.json` for packs) to the output directory.
+Write `meta.json` and `frames-<size>.json` (ICG format) and optionally `pack.json` to the output directory.
+
+**Building ICG frames:**
+```python
+import base64, json
+
+class_table = ["", "accent"]  # index 0 = default, index 1 = accent color
+
+frames = []
+for frame_idx in range(num_frames):
+    # Build rows_list: list of strings, each exactly `cols` chars
+    rows_list = [...]
+    chars = "\n".join(rows_list)
+
+    # Build color grid: list of byte values, length = cols * rows
+    color_bytes = [...]  # each byte indexes into class_table
+    colors_b64 = base64.b64encode(bytes(color_bytes)).decode('ascii')
+
+    frames.append({"chars": chars, "colors": colors_b64})
+
+icg_data = {"class_table": class_table, "frames": frames}
+with open("frames-1x1.json", "w") as f:
+    json.dump(icg_data, f)
+```
 
 ### 4. Validate
 ```bash
@@ -274,9 +308,8 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/validate.py <output-dir>
 ```
 Fix any structural errors reported, then re-validate until clean.
 
-After the structural checks, `validate.py` outputs a **size analysis** section with exact gzip size, spans/frame, run length, background ratio, and overhead ratio. Review it:
-- If any ⚠⚠ threshold is flagged: proactively offer a specific adjustment with estimated savings before the user imports. Example: *"Your animation is 340 KB gzipped — would you like me to simplify the palette from 6 to 4 colors (estimated ~40% reduction)?"*
-- If any ⚠ threshold is flagged: mention it and ask whether to proceed or adjust. Example: *"Average run length is 2.1 — color regions are fragmented. Would you like me to redraw with broader color blocks?"*
+After the structural checks, `validate.py` outputs a **size analysis** section. Review it:
+- If any threshold is flagged: proactively offer a specific adjustment with estimated savings before the user imports.
 - If all metrics are healthy: report the size and proceed.
 
 ### 5. Preview
@@ -308,7 +341,7 @@ To share an animation:
 |------|----------|
 | `ref/schemas.md` | Complete field-by-field schema docs, validation regexes, error messages |
 | `ref/sizing-guide.md` | Grid math, font scaling, responsive breakpoints, extended size table |
-| `ref/frame-construction.md` | Step-by-step tutorial, worked examples, common mistakes, animation tips |
+| `ref/frame-construction.md` | Step-by-step ICG frame tutorial, worked examples, common mistakes, animation tips |
 
 ## Example Files
 

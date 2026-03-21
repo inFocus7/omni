@@ -59,6 +59,11 @@ func OpenSQLite(path string, seed fs.FS) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("sqlite migrate: %w", err)
 	}
 
+	if err := s.migrateHTMLToICG(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("sqlite migrate HTML→ICG: %w", err)
+	}
+
 	if seed != nil {
 		if err := s.seedIfEmpty(seed); err != nil {
 			db.Close()
@@ -126,6 +131,86 @@ func (s *SQLiteStore) addColumnIfMissing(table, column, colType string) error {
 	return nil
 }
 
+// migrateHTMLToICG detects animation_frames rows still in legacy HTML format
+// (gzipped JSON []string) and converts them to ICG format in-place. This is a
+// one-time migration that runs on every startup but short-circuits quickly
+// when no legacy data exists.
+func (s *SQLiteStore) migrateHTMLToICG() error {
+	rows, err := s.db.Query(`
+		SELECT f.name, f.size, f.frames, v.cols, v.rows, v.palette
+		FROM animation_frames f
+		JOIN variants v ON v.name = f.name AND v.size = f.size
+	`)
+	if err != nil {
+		return fmt.Errorf("query frames for migration: %w", err)
+	}
+	defer rows.Close()
+
+	type migrationRow struct {
+		name, size string
+		framesGz   []byte
+		cols, rws  int
+		palette    map[string]string
+	}
+	var toMigrate []migrationRow
+
+	for rows.Next() {
+		var name, size, paletteJSON string
+		var framesGz []byte
+		var cols, rws int
+		if err := rows.Scan(&name, &size, &framesGz, &cols, &rws, &paletteJSON); err != nil {
+			return fmt.Errorf("scan migration row: %w", err)
+		}
+
+		// Decompress and check if it's legacy format (JSON array of strings).
+		plain, err := GzipDecompress(framesGz)
+		if err != nil {
+			continue // skip corrupted rows
+		}
+		if IsICGFormat(plain) {
+			continue // already ICG
+		}
+
+		var palette map[string]string
+		if err := json.Unmarshal([]byte(paletteJSON), &palette); err != nil {
+			palette = nil
+		}
+
+		toMigrate = append(toMigrate, migrationRow{
+			name: name, size: size, framesGz: framesGz,
+			cols: cols, rws: rws, palette: palette,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate migration rows: %w", err)
+	}
+	rows.Close()
+
+	for _, mr := range toMigrate {
+		plain, _ := GzipDecompress(mr.framesGz)
+		var htmlFrames []string
+		if err := json.Unmarshal(plain, &htmlFrames); err != nil {
+			continue
+		}
+		icg, err := HTMLFramesToICG(htmlFrames, mr.cols, mr.rws)
+		if err != nil {
+			continue
+		}
+		gz, firstFrame, err := CompressICG(icg)
+		if err != nil {
+			continue
+		}
+		if _, err := s.db.Exec(
+			`UPDATE animation_frames SET frames = ?, first_frame = ? WHERE name = ? AND size = ?`,
+			gz, firstFrame, mr.name, mr.size,
+		); err != nil {
+			return fmt.Errorf("migrate %q/%q: %w", mr.name, mr.size, err)
+		}
+	}
+
+	return nil
+}
+
 // seedIfEmpty populates the database from the embedded fs.FS when the
 // animations table is empty. It is safe to call on every startup; it is a
 // no-op after the first successful seed.
@@ -162,11 +247,24 @@ func (s *SQLiteStore) seedIfEmpty(fsys fs.FS) error {
 			if err != nil {
 				return fmt.Errorf("seed %q: read frames %q: %w", pack.Name, vs.FramesFile, err)
 			}
-			var frames []string
-			if err := json.Unmarshal(framesData, &frames); err != nil {
-				return fmt.Errorf("seed %q: parse frames %q: %w", pack.Name, vs.FramesFile, err)
+			var icg *ICGData
+			if IsICGFormat(framesData) {
+				icg, err = ParseICGFramesFile(framesData)
+				if err != nil {
+					return fmt.Errorf("seed %q: parse ICG frames %q: %w", pack.Name, vs.FramesFile, err)
+				}
+			} else {
+				// Legacy HTML format: convert to ICG.
+				var frames []string
+				if err := json.Unmarshal(framesData, &frames); err != nil {
+					return fmt.Errorf("seed %q: parse frames %q: %w", pack.Name, vs.FramesFile, err)
+				}
+				icg, err = HTMLFramesToICG(frames, vs.Cols, vs.Rows)
+				if err != nil {
+					return fmt.Errorf("seed %q: convert frames %q: %w", pack.Name, vs.FramesFile, err)
+				}
 			}
-			gz, firstFrame, err := CompressFrames(frames)
+			gz, firstFrame, err := CompressICG(icg)
 			if err != nil {
 				return fmt.Errorf("seed %q: compress frames %q: %w", pack.Name, vs.FramesFile, err)
 			}
@@ -505,8 +603,8 @@ func (s *SQLiteStore) GetVariant(ctx context.Context, name, size string) (*Anima
 }
 
 // Put creates or replaces a variant and its frame data atomically.
-// v.FramesGzip and v.FirstFrame must be populated by the caller via CompressFrames.
-// Palette and frame HTML are validated and sanitized before storage.
+// v.FramesGzip must contain gzip-compressed ICG JSON (via CompressICG).
+// Palette and ICG class names are validated before storage.
 func (s *SQLiteStore) Put(ctx context.Context, v AnimationVariant) error {
 	if len(v.FramesGzip) == 0 {
 		return fmt.Errorf("Put %q/%q: FramesGzip must not be empty; call CompressFrames first", v.Name, v.Size)

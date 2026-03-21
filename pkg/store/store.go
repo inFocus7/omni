@@ -57,7 +57,7 @@ type AnimationVariant struct {
 	FPS        int               `json:"fps"`
 	Palette    map[string]string `json:"palette,omitempty"`
 	FirstFrame string            `json:"-"` // frame[0] as plain HTML; used by Render()
-	FramesGzip []byte            `json:"-"` // gzip-compressed JSON []string; opaque blob
+	FramesGzip []byte            `json:"-"` // gzip-compressed ICG JSON blob (ICGData)
 }
 
 // EventKind identifies the type of store event.

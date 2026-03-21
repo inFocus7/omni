@@ -1,19 +1,28 @@
-# Frame Construction Guide
+# Frame Construction Guide (ICG Format)
 
-Step-by-step tutorial for building valid ASCII animation frames.
+Step-by-step tutorial for building valid ASCII animation frames in ICG (Indexed Color Grid) format.
 
 ---
 
 ## Mental Model
 
-Think of a frame as a **grid of visible characters**: `cols` wide, `rows` tall.
+Think of a frame as two parallel grids, both `cols` wide and `rows` tall:
 
-- Every cell in the grid must be filled — use spaces for empty cells
-- The grid is represented as `rows` strings joined by `\n`
-- Each string must contain exactly `cols` **visible characters**
-- Visible characters = all text content, **not counting HTML tag syntax** (`<`, `>`, attribute text)
+1. **`chars`** — a plain text string with `\n`-separated rows. Each row has exactly `cols` characters. No HTML, no entities — raw unicode.
+2. **`colors`** — a byte array (base64-encoded in JSON), one byte per cell. Each byte is an index into `class_table`. Length = `cols × rows`.
 
-The frames file is a JSON array of these strings: `["frame0", "frame1", ...]`
+The frames file wraps these in an ICG structure:
+```json
+{
+  "class_table": ["", "ring", "spark"],
+  "frames": [
+    { "chars": "  ;;====...\n  ...", "colors": "AABBBCCaaa..." }
+  ]
+}
+```
+
+- `class_table[0]` is always `""` (default text color, no palette class)
+- `class_table[1+]` are palette class names that map to colors in `meta.json`
 
 ---
 
@@ -31,132 +40,186 @@ Example: cols=20, rows=5
 
 
 ```
-Row 2: "    Hello, World!   " = 4 + 13 + 3 = 20 chars ✓
+Row 2: `"    Hello, World!   "` = 4 + 13 + 3 = 20 chars ✓
 All other rows: 20 spaces ✓
 
-### 2. Add color spans
+### 2. Build the color grid
 
-Wrap colored regions in `<span class="paletteName">...</span>`.
+Create a byte array of length `cols × rows`. Each byte indexes into `class_table`.
 
-The visible character count is computed from text content only — the tag itself is invisible.
+- Byte `0` = default text color (no palette class)
+- Byte `1` = `class_table[1]` (e.g. `"ring"`)
+- Byte `2` = `class_table[2]` (e.g. `"spark"`)
 
-```
-row 2: "    <span class="hi">Hello</span>, World!   "
-```
-Visible count: 4 spaces + "Hello" (5) + ", World!" (8) + 3 spaces = 20 ✓
+For the example above with palette `{"hi": "#ff0"}` and `class_table = ["", "hi"]`:
+- Row 2, positions 4–17 ("Hello, World!") get byte `1` (class "hi")
+- All other cells get byte `0` (default color)
 
-Tags `<span class="hi">` and `</span>` are NOT counted.
+### 3. Base64-encode the colors
 
-### 3. Verify each row
-
-**Rule: every row must have exactly `cols` visible characters.**
-
-To count visible characters in a row: strip all HTML tags (`<...>`), then count the remaining characters. Also decode HTML entities before counting:
-- `&amp;` → `&` (1 char)
-- `&lt;` → `<` (1 char)
-- `&gt;` → `>` (1 char)
-- `&nbsp;` → ` ` (1 char)
-- `&#N;` or `&#xHH;` → 1 char
-
-### 4. Join rows with \n
+Convert the byte array to a base64 string for JSON serialization.
 
 ```python
-frame = "\n".join(rows)  # rows is a list of row strings
+import base64
+colors = bytes([0]*20 + [0]*20 + [0]*4 + [1]*13 + [0]*3 + [0]*20 + [0]*20)
+colors_b64 = base64.b64encode(colors).decode('ascii')
 ```
 
-### 5. Include in JSON array
+### 4. Verify dimensions
+
+**Rule: every row must have exactly `cols` characters.**
+
+```python
+chars = "\n".join(rows_list)
+lines = chars.split('\n')
+assert len(lines) == rows
+for line in lines:
+    assert len(line) == cols
+```
+
+**Rule: colors must decode to exactly `cols × rows` bytes.**
+
+```python
+color_bytes = base64.b64decode(colors_b64)
+assert len(color_bytes) == cols * rows
+```
+
+### 5. Assemble the ICG frame
+
+```python
+frame = {
+    "chars": chars,
+    "colors": colors_b64
+}
+```
+
+### 6. Build the frames file
 
 ```json
-["frame0_string", "frame1_string"]
+{
+  "class_table": ["", "hi"],
+  "frames": [
+    { "chars": "...", "colors": "..." }
+  ]
+}
 ```
-
-Make sure to escape special characters in JSON strings:
-- `"` → `\"`
-- `\` → `\\`
-- Newlines in the string: these should already be `\n` (literal newline escape, not a raw newline)
 
 ---
 
 ## Worked Example: 20×5 Frame with 2 Colors
 
-**Setup:** cols=20, rows=5, palette={"title": "#ff6600", "body": "#aaaaaa"}
+**Setup:** cols=20, rows=5, palette=`{"title": "#ff6600", "body": "#aaaaaa"}`
+
+**class_table:** `["", "title", "body"]`
+- Index 0 = `""` (default)
+- Index 1 = `"title"` → `#ff6600`
+- Index 2 = `"body"` → `#aaaaaa`
 
 **Target art:**
 ```
 ====================
-= DASHBOARD DEMO  =
-= version  1.0.0  =
-= by omni         =
+=  DASHBOARD DEMO  =
+=  version  1.0.0  =
+=  by omni         =
 ====================
 ```
 
-**Step 1: Draw rows and count:**
-- row 0: `"===================="` → 20 chars ✓
-- row 1: `"= DASHBOARD DEMO  ="` → 20 chars ✓ (1+1+14+3+1=20)
-- row 2: `"= version  1.0.0  ="` → 20 chars ✓
-- row 3: `"= by omni         ="` → 20 chars ✓
-- row 4: `"===================="` → 20 chars ✓
-
-**Step 2: Add color spans:**
-```
-row 0: "<span class=\"title\">===================</span>="
-  visible: 19 + 1 = 20 ✓  ← spans only wrap chars we want colored
-```
-
-Wait — let me wrap the full border line:
-```
-row 0: "<span class=\"title\">====================</span>"
-  visible: 20 ✓
-row 1: "<span class=\"title\">=</span> <span class=\"body\">DASHBOARD DEMO</span>  <span class=\"title\">=</span>"
-  visible: 1 + 1 + 14 + 2 + 1 = 19... ← need to recount
+**Step 1: Build chars string:**
+```python
+rows_list = [
+    "====================",  # 20 chars ✓
+    "=  DASHBOARD DEMO  =",  # 20 chars ✓
+    "=  version  1.0.0  =",  # 20 chars ✓
+    "=  by omni         =",  # 20 chars ✓
+    "====================",  # 20 chars ✓
+]
+chars = "\n".join(rows_list)
 ```
 
-Adjusted for exact 20 chars on row 1:
-`"= DASHBOARD DEMO  ="` = `=`(1) + ` `(1) + `DASHBOARD DEMO`(14) + `  `(2) + `=`(1) = 19. Hmm, that's 19. Let me use `"= DASHBOARD DEMO  = "` — wait that's 21. Let me use `"=  DASHBOARD DEMO  ="` = 1+2+14+2+1 = 20 ✓.
+**Step 2: Build colors array:**
 
+Row 0: all border chars → index 1 (title)
+```python
+row0 = [1]*20
+```
+
+Row 1: `=` border (title), spaces (default), `DASHBOARD DEMO` (body), spaces (default), `=` border (title)
+```python
+row1 = [1] + [0]*2 + [2]*14 + [0]*2 + [1]
+```
+
+Row 2: similar pattern
+```python
+row2 = [1] + [0]*2 + [2]*14 + [0]*2 + [1]
+```
+
+Row 3: similar pattern
+```python
+row3 = [1] + [0]*2 + [2]*14 + [0]*2 + [1]
+```
+
+Row 4: all border chars → index 1 (title)
+```python
+row4 = [1]*20
+```
+
+```python
+import base64
+color_data = bytes(row0 + row1 + row2 + row3 + row4)
+assert len(color_data) == 100  # 20 × 5
+colors_b64 = base64.b64encode(color_data).decode('ascii')
+```
+
+**Step 3: Assemble:**
 ```json
-"<span class=\"title\">=</span>  <span class=\"body\">DASHBOARD DEMO</span>  <span class=\"title\">=</span>"
+{
+  "class_table": ["", "title", "body"],
+  "frames": [
+    {
+      "chars": "====================\n=  DASHBOARD DEMO  =\n=  version  1.0.0  =\n=  by omni         =\n====================",
+      "colors": "AQEBAQEBAQEBAQEBAQEBAQEAAAAAAAICAGICAGICAGAAAAAAABAQEBAAAAAIAIAIAIAIAAIAAAAAAAQEBAQEBAQEBAQEBAQEBAQE="
+    }
+  ]
+}
 ```
-visible: 1 + 2 + 14 + 2 + 1 = 20 ✓
 
-**Step 3: Assemble the frame string:**
-```json
-"<span class=\"title\">====================</span>\n<span class=\"title\">=</span>  <span class=\"body\">DASHBOARD DEMO</span>  <span class=\"title\">=</span>\n..."
-```
+---
+
+## Color Resolution Chain
+
+To determine the color for a cell at position (row, col):
+
+1. `colorByte = colors[row * cols + col]`
+2. `className = class_table[colorByte]`
+3. `cssColor = palette[className]` (from meta.json)
+4. If `className` is `""` or not in palette → use default text color
 
 ---
 
 ## Background Rule
 
-**Plain spaces are free. Never span them unless you want a visible colored fill.**
+**Default-colored cells (byte 0) are free.** They use no palette class and render in the default text color.
 
-```
-" "                              ← free, costs nothing, renders as empty
-"<span class="bg"> </span>"     ← costs ~24 bytes, adds a DOM node
-```
+Cells that are spaces AND use default color (byte 0) are background. They cost nothing and render as empty space. This is the single biggest efficiency win — a typical frame is 40–60% spaces.
 
-Unspanned spaces are the single biggest efficiency win. A typical animation frame is 40–60% spaces — leaving them unspanned can halve the span count.
-
-**When background color IS intentional**: define a `bg` (or any name) palette class, use it on spaces. `validate.py` will not flag this — it's structurally valid. Just confirm the user explicitly asked for it.
+**When background color IS intentional**: add a palette class (e.g. `"bg"`), assign it a color in `meta.json`, and set the corresponding byte index for space cells. This is valid but increases the color data that must be stored.
 
 ---
 
 ## Drawing Efficiency
 
-How you arrange colors in frames directly affects file size and render performance. The renderer RLE-encodes consecutive same-class characters into one `<span>` automatically — so your job is to make runs as long as possible.
+### What makes files smaller (good)
+- Large regions of the same color index (compresses well with gzip)
+- Many cells with index 0 (default color)
+- Few total classes in `class_table` (3–5 is ideal)
 
-### What makes runs long (good)
-- Solid horizontal bands of one color: `<span class="c">@@@@@@@@@@@@</span>` (1 span, 12 chars)
-- Large color blocks with clean edges
-- Few total colors (3–5 is ideal)
-
-### What makes runs short (expensive)
-- Alternating colors per character: each char gets its own span
-- Diagonal or scattered color patterns
-- Many colors with small regions
+### What makes files larger (expensive)
+- Alternating color indices per character (poor gzip compression)
+- Many unique class_table entries
+- Very few default-colored cells
 
 ### Rule of thumb
-Design the color layout first as broad regions, then fill in detail. Think of it like painting with a wide brush — fine detail can always be added, but it has a cost.
+Design the color layout as broad regions first. Fine per-cell color detail compresses poorly. Think of it like painting with a wide brush.
 
 ---
 
@@ -164,27 +227,31 @@ Design the color layout first as broad regions, then fill in detail. Think of it
 
 ### 1. Wrong line width
 **Problem:** Row has 44 or 46 chars instead of 45.
-**Fix:** Count carefully. Use Python: `len(re.sub(r'<[^>]+>', '', row))` to count visible chars.
+**Fix:** Count carefully. Use `len(line)` — no HTML stripping needed since ICG uses plain text.
 
-### 2. Using `<br>` instead of `\n`
-**Problem:** Frame displays as one long line.
-**Fix:** Use `\n` (the string escape) as the line separator when joining rows. `<br>` is for inline visual breaks within a line and is separate from the row structure.
+### 2. Colors length mismatch
+**Problem:** Base64 decodes to wrong number of bytes.
+**Fix:** Ensure `len(base64.b64decode(colors)) == cols * rows`.
 
-### 3. Forgetting to pad with spaces
-**Problem:** Rows are shorter than `cols` → import validator rejects.
-**Fix:** Right-pad every row: `row.ljust(cols)` in Python.
+### 3. Color index out of range
+**Problem:** A byte value exceeds `len(class_table) - 1`.
+**Fix:** Ensure all color bytes are in range `0..len(class_table)-1`.
 
-### 4. Counting HTML tag characters as visible
-**Problem:** Row looks right visually but validation fails.
-**Fix:** Strip all `<tag>` and `</tag>` sequences before counting.
+### 4. class_table[0] not empty string
+**Problem:** Validation fails because class_table[0] is not `""`.
+**Fix:** class_table[0] MUST always be `""` (the default/no-color entry).
 
-### 5. Invalid palette class name
-**Problem:** Import fails with "invalid palette class name".
+### 5. Invalid class name in class_table
+**Problem:** Import fails with "invalid class name".
 **Fix:** Class names must match `^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$`. No spaces, no dots, no starting with a digit.
 
-### 6. Backslash not escaped in JSON
-**Problem:** JSON parse error on `\` characters in frames.
-**Fix:** In JSON strings, `\` must be written as `\\`. The backslash character `\` is `\\` in JSON.
+### 6. Using HTML instead of plain text
+**Problem:** `chars` contains `<span>` tags or HTML entities.
+**Fix:** ICG `chars` is raw unicode text. No HTML, no entities. Use actual characters: `<`, `>`, `&`, etc.
+
+### 7. Missing newlines in chars
+**Problem:** Frame displays as one long line.
+**Fix:** chars must have exactly `rows - 1` newline characters (`\n`), producing `rows` lines.
 
 ---
 
@@ -199,30 +266,19 @@ frame 0 row: "~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  "  (45 chars)
 frame 1 row: "  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~ "  (45 chars)
 frame 2 row: " ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  "  (45 chars)
 ```
+The color bytes shift correspondingly.
 
 ### Blinking / pulsing
-Alternate between two states (on/off, bright/dim, expanded/contracted):
-```
-frame 0: center dot only
-frame 1: dot + ring around it
-frame 2: center dot only  ← repeat
-```
+Alternate between two states. The `chars` may stay the same while `colors` change (e.g. cycling between color indices).
 
 ### Morphing
-Gradually transform one shape into another across frames:
-```
-frame 0: [ ]   (box outline)
-frame 1: [o]   (dot inside)
-frame 2: [O]   (bigger dot)
-frame 3: [X]   (filled)
-```
+Gradually transform one shape into another across frames — both `chars` and `colors` change.
 
 ### Particle / rain effect
-Each frame shifts column content down by one row, with new characters generated at the top:
-```
-frame 0: top row has random chars, rest empty
-frame 1: those chars moved down one row, new chars at top
-```
+Each frame shifts column content down by one row, with new characters at the top.
+
+### Color cycling
+Keep `chars` identical across frames; only change the `colors` bytes. This produces color-only animation with very good gzip compression (chars data is identical).
 
 ### Optimal FPS ranges
 | Effect | Suggested FPS |
@@ -235,48 +291,65 @@ frame 1: those chars moved down one row, new chars at top
 
 ---
 
-## HTML Entities in Frames
-
-You can use HTML entities for special characters:
-
-| Entity | Character | Visible count |
-|--------|-----------|---------------|
-| `&amp;` | `&` | 1 |
-| `&lt;` | `<` | 1 |
-| `&gt;` | `>` | 1 |
-| `&nbsp;` | non-breaking space | 1 |
-| `&#9608;` | `█` (block) | 1 |
-| `&#9617;` | `░` (light shade) | 1 |
-| `&#9618;` | `▒` (medium shade) | 1 |
-| `&#9619;` | `▓` (dark shade) | 1 |
-
-Note: The sanitizer HTML-escapes text nodes, so raw `<` and `>` in text get converted to `&lt;` and `&gt;` automatically. Write them as entities if you want them as visible characters.
-
----
-
-## Python Snippet: Build a Frame
+## Python Snippet: Build ICG Frames
 
 ```python
-import re
+import base64
+import json
 
-def visible_len(html_str):
-    """Count visible characters in an HTML frame row."""
-    text = re.sub(r'<[^>]+>', '', html_str)
-    # Decode common entities
-    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-    text = text.replace('&nbsp;', ' ')
-    text = re.sub(r'&#\d+;', 'X', text)   # count each entity as 1 char
-    text = re.sub(r'&#x[0-9a-fA-F]+;', 'X', text)
-    return len(text)
+def make_icg_frame(rows_list, color_grid, cols, rows):
+    """
+    Build an ICG frame dict.
 
-def make_frame(rows_list):
-    """Join rows into a frame string."""
-    return '\n'.join(rows_list)
+    rows_list:   list of strings, each exactly `cols` characters
+    color_grid:  list of lists of ints, each row has `cols` entries
+    """
+    assert len(rows_list) == rows
+    assert len(color_grid) == rows
+    for i, (line, colors) in enumerate(zip(rows_list, color_grid)):
+        assert len(line) == cols, f"Row {i}: {len(line)} chars, expected {cols}"
+        assert len(colors) == cols, f"Row {i}: {len(colors)} color entries, expected {cols}"
 
-def pad_row(row_html, cols):
-    """Right-pad a row to exactly cols visible characters."""
-    vlen = visible_len(row_html)
-    if vlen < cols:
-        return row_html + ' ' * (cols - vlen)
-    return row_html
+    chars = "\n".join(rows_list)
+    flat_colors = []
+    for row in color_grid:
+        flat_colors.extend(row)
+    colors_b64 = base64.b64encode(bytes(flat_colors)).decode('ascii')
+
+    return {"chars": chars, "colors": colors_b64}
+
+
+def make_blank_frame(cols, rows):
+    """Make a blank frame (all spaces, all default color)."""
+    rows_list = [" " * cols] * rows
+    color_grid = [[0] * cols] * rows
+    return make_icg_frame(rows_list, color_grid, cols, rows)
+
+
+def make_icg_file(class_table, frames):
+    """Build the complete ICG data structure."""
+    return {
+        "class_table": class_table,
+        "frames": frames
+    }
+```
+
+### Usage example:
+```python
+class_table = ["", "accent"]
+frames = []
+
+# Frame 0: star in center
+rows_list = [" " * 10] * 2 + ["    *     "] + [" " * 10] * 2
+color_grid = [[0]*10] * 2 + [[0]*4 + [1] + [0]*5] + [[0]*10] * 2
+frames.append(make_icg_frame(rows_list, color_grid, 10, 5))
+
+# Frame 1: star moved right
+rows_list = [" " * 10] * 2 + ["     *    "] + [" " * 10] * 2
+color_grid = [[0]*10] * 2 + [[0]*5 + [1] + [0]*4] + [[0]*10] * 2
+frames.append(make_icg_frame(rows_list, color_grid, 10, 5))
+
+icg = make_icg_file(class_table, frames)
+with open("frames-1x1.json", "w") as f:
+    json.dump(icg, f)
 ```

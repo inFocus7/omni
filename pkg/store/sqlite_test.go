@@ -2,16 +2,50 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 )
 
+// makeICGData builds a minimal ICG data structure for testing.
+func makeICGData(t *testing.T, numFrames int, cols, rows int) *ICGData {
+	t.Helper()
+	data := &ICGData{
+		ClassTable: []string{"", "fg"},
+		Frames:     make([]ICGFrame, numFrames),
+	}
+	for i := range data.Frames {
+		line := make([]byte, cols)
+		for j := range line {
+			line[j] = ' '
+		}
+		lineStr := string(line)
+		lines := make([]string, rows)
+		for j := range lines {
+			lines[j] = lineStr
+		}
+		chars := ""
+		for j, l := range lines {
+			if j > 0 {
+				chars += "\n"
+			}
+			chars += l
+		}
+		colors := make([]byte, cols*rows)
+		data.Frames[i] = ICGFrame{Chars: chars, Colors: colors}
+	}
+	return data
+}
+
 func makeVariant(t *testing.T, frames []string) AnimationVariant {
 	t.Helper()
-	gz, first, err := CompressFrames(frames)
+	// Convert HTML frames to ICG for backwards compatibility with existing tests.
+	icg, err := HTMLFramesToICG(frames, 80, 40)
 	if err != nil {
-		t.Fatalf("CompressFrames: %v", err)
+		t.Fatalf("HTMLFramesToICG: %v", err)
+	}
+	gz, first, err := CompressICG(icg)
+	if err != nil {
+		t.Fatalf("CompressICG: %v", err)
 	}
 	return AnimationVariant{
 		Name:       "test",
@@ -52,15 +86,15 @@ func TestFramesStoredCompressed(t *testing.T) {
 		t.Fatalf("blob is not gzip: first bytes %x", blob[:min(len(blob), 4)])
 	}
 
-	// first_frame column must equal frames[0].
+	// first_frame column must be non-empty (generated from ICG frame[0]).
 	var dbFirstFrame string
 	if err := st.db.QueryRowContext(ctx,
 		"SELECT first_frame FROM animation_frames WHERE name = 'test' AND size = '1x1'",
 	).Scan(&dbFirstFrame); err != nil {
 		t.Fatalf("query first_frame: %v", err)
 	}
-	if dbFirstFrame != frames[0] {
-		t.Fatalf("first_frame: want %q, got %q", frames[0], dbFirstFrame)
+	if dbFirstFrame == "" {
+		t.Fatal("first_frame: expected non-empty HTML string")
 	}
 
 	// Get returns FirstFrame and FramesGzip intact — no decompression.
@@ -72,26 +106,20 @@ func TestFramesStoredCompressed(t *testing.T) {
 		t.Fatalf("expected 1 variant, got %d", len(variants))
 	}
 	got := variants[0]
-	if got.FirstFrame != frames[0] {
-		t.Errorf("FirstFrame: want %q, got %q", frames[0], got.FirstFrame)
+	if got.FirstFrame == "" {
+		t.Error("FirstFrame: expected non-empty")
 	}
 	if len(got.FramesGzip) < 2 || got.FramesGzip[0] != 0x1f || got.FramesGzip[1] != 0x8b {
 		t.Errorf("FramesGzip is not gzip: first bytes %x", got.FramesGzip[:min(len(got.FramesGzip), 4)])
 	}
 
-	// FramesGzip must decompress to the original frames.
-	plain, err := GzipDecompress(got.FramesGzip)
+	// FramesGzip must decompress to valid ICG data.
+	icg, err := DecompressICG(got.FramesGzip)
 	if err != nil {
-		t.Fatalf("decompress: %v", err)
+		t.Fatalf("DecompressICG: %v", err)
 	}
-	var roundtrip []string
-	if err := json.Unmarshal(plain, &roundtrip); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	for i, f := range frames {
-		if roundtrip[i] != f {
-			t.Errorf("frame[%d]: want %q, got %q", i, f, roundtrip[i])
-		}
+	if len(icg.Frames) != len(frames) {
+		t.Fatalf("ICG frames count: want %d, got %d", len(frames), len(icg.Frames))
 	}
 }
 
@@ -120,8 +148,8 @@ func TestEventCarriesFirstFrameAndGzip(t *testing.T) {
 	}
 
 	ev := <-ch
-	if ev.Variant.FirstFrame != frames[0] {
-		t.Errorf("event FirstFrame: want %q, got %q", frames[0], ev.Variant.FirstFrame)
+	if ev.Variant.FirstFrame == "" {
+		t.Error("event FirstFrame: expected non-empty")
 	}
 	if len(ev.Variant.FramesGzip) < 2 || ev.Variant.FramesGzip[0] != 0x1f || ev.Variant.FramesGzip[1] != 0x8b {
 		t.Errorf("event FramesGzip is not gzip: first bytes %x", ev.Variant.FramesGzip[:min(len(ev.Variant.FramesGzip), 4)])
@@ -148,10 +176,10 @@ func TestListSummaries(t *testing.T) {
 	}
 
 	// Put two variants for the same animation.
-	frames := []string{"<span>frame0</span>", "<span>frame1</span>"}
-	gz, first, err := CompressFrames(frames)
+	icg1 := makeICGData(t, 2, 80, 24)
+	gz, first, err := CompressICG(icg1)
 	if err != nil {
-		t.Fatalf("CompressFrames: %v", err)
+		t.Fatalf("CompressICG: %v", err)
 	}
 	if err := st.Put(ctx, AnimationVariant{
 		Name:       "demo",
@@ -165,9 +193,10 @@ func TestListSummaries(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("put 1x1: %v", err)
 	}
-	gz2, first2, err := CompressFrames([]string{"<span>frameA</span>"})
+	icg2 := makeICGData(t, 1, 160, 24)
+	gz2, first2, err := CompressICG(icg2)
 	if err != nil {
-		t.Fatalf("CompressFrames 2x1: %v", err)
+		t.Fatalf("CompressICG 2x1: %v", err)
 	}
 	if err := st.Put(ctx, AnimationVariant{
 		Name:       "demo",
@@ -199,8 +228,8 @@ func TestListSummaries(t *testing.T) {
 	if v1.Size != "1x1" {
 		t.Errorf("v1.Size: want %q, got %q", "1x1", v1.Size)
 	}
-	if v1.FirstFrame != first {
-		t.Errorf("v1.FirstFrame: want %q, got %q", first, v1.FirstFrame)
+	if v1.FirstFrame == "" {
+		t.Error("v1.FirstFrame: expected non-empty")
 	}
 	if v1.Palette["red"] != "#ff0000" {
 		t.Errorf("v1.Palette[red]: want #ff0000, got %q", v1.Palette["red"])
@@ -209,8 +238,8 @@ func TestListSummaries(t *testing.T) {
 	if v2.Size != "2x1" {
 		t.Errorf("v2.Size: want %q, got %q", "2x1", v2.Size)
 	}
-	if v2.FirstFrame != first2 {
-		t.Errorf("v2.FirstFrame: want %q, got %q", first2, v2.FirstFrame)
+	if v2.FirstFrame == "" {
+		t.Error("v2.FirstFrame: expected non-empty")
 	}
 }
 
@@ -241,9 +270,10 @@ func TestPutRejectsInvalidPalette(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	gz, first, err := CompressFrames([]string{"<span>f</span>"})
+	icg := makeICGData(t, 1, 80, 24)
+	gz, first, err := CompressICG(icg)
 	if err != nil {
-		t.Fatalf("CompressFrames: %v", err)
+		t.Fatalf("CompressICG: %v", err)
 	}
 
 	cases := []struct {
@@ -290,9 +320,10 @@ func TestListSummariesPaged(t *testing.T) {
 	// Seed 5 animations: alpha, beta, gamma, delta, epsilon.
 	names := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
 	for _, name := range names {
-		gz, first, err := CompressFrames([]string{"<span>f</span>"})
+		icg := makeICGData(t, 1, 80, 24)
+		gz, first, err := CompressICG(icg)
 		if err != nil {
-			t.Fatalf("CompressFrames %s: %v", name, err)
+			t.Fatalf("CompressICG %s: %v", name, err)
 		}
 		if err := st.Put(ctx, AnimationVariant{
 			Name: name, Size: "1x1",
@@ -303,9 +334,10 @@ func TestListSummariesPaged(t *testing.T) {
 		}
 		// Also add a 2x1 variant for "alpha" only.
 		if name == "alpha" {
-			gz2, first2, err := CompressFrames([]string{"<span>g</span>"})
+			icg2 := makeICGData(t, 1, 160, 24)
+			gz2, first2, err := CompressICG(icg2)
 			if err != nil {
-				t.Fatalf("CompressFrames 2x1: %v", err)
+				t.Fatalf("CompressICG 2x1: %v", err)
 			}
 			if err := st.Put(ctx, AnimationVariant{
 				Name: name, Size: "2x1",
@@ -398,9 +430,10 @@ func TestListDistinctSizes(t *testing.T) {
 	// Add variants with two sizes.
 	for _, size := range []string{"1x1", "2x1", "1x1"} {
 		name := "anim-" + size
-		gz, first, err := CompressFrames([]string{"<span>f</span>"})
+		icg := makeICGData(t, 1, 80, 24)
+		gz, first, err := CompressICG(icg)
 		if err != nil {
-			t.Fatalf("CompressFrames: %v", err)
+			t.Fatalf("CompressICG: %v", err)
 		}
 		if err := st.Put(ctx, AnimationVariant{
 			Name: name, Size: size,

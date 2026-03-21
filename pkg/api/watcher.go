@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -48,7 +49,13 @@ func (w *Watcher) Start(ctx context.Context) {
 				} else {
 					w.registry.Register(asciiplugin.NewWidgetFromVariant(ev.Variant))
 				}
-				w.cache.Store(ev.Variant.Name+"/"+ev.Variant.Size, ev.Variant.FramesGzip)
+				// Build wire-format JSON and cache it (gzip-compressed).
+				if wireGz, err := buildWireFormatGz(ev.Variant); err == nil {
+					w.cache.Store(ev.Variant.Name+"/"+ev.Variant.Size, wireGz)
+				} else {
+					w.logger.Warn().Err(err).Str("animation", ev.Name).Msg("failed to build wire format for cache")
+					w.cache.Delete(ev.Variant.Name + "/" + ev.Variant.Size)
+				}
 				w.logger.Info().Str("animation", ev.Name).Str("size", ev.Variant.Size).Msg("store event: registered animation")
 
 			case store.EventDelete:
@@ -64,4 +71,19 @@ func (w *Watcher) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// buildWireFormatGz decompresses an ICG blob, resolves palette, marshals to
+// wire-format JSON, and gzip-compresses the result for caching.
+func buildWireFormatGz(v store.AnimationVariant) ([]byte, error) {
+	icg, err := store.DecompressICG(v.FramesGzip)
+	if err != nil {
+		return nil, err
+	}
+	wire := store.BuildICGWireFormat(icg, v.Palette, v.Cols, v.Rows)
+	wireJSON, err := json.Marshal(wire)
+	if err != nil {
+		return nil, err
+	}
+	return store.GzipCompress(wireJSON)
 }

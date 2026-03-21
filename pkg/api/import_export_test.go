@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"strings"
 	"sync"
 	"testing"
 
@@ -98,10 +99,31 @@ func buildMultipart(t *testing.T, files map[string][]byte) (*bytes.Buffer, strin
 	return &buf, mw.FormDataContentType()
 }
 
+// ── ICG test helper ──────────────────────────────────────────────────────────
+
+// makeTestICGData builds a minimal ICG data structure for testing.
+func makeTestICGData(numFrames, cols, rows int) store.ICGData {
+	data := store.ICGData{
+		ClassTable: []string{"", "fg"},
+		Frames:     make([]store.ICGFrame, numFrames),
+	}
+	line := strings.Repeat(" ", cols)
+	lines := make([]string, rows)
+	for j := range lines {
+		lines[j] = line
+	}
+	chars := strings.Join(lines, "\n")
+	colors := make([]byte, cols*rows)
+	for i := range data.Frames {
+		data.Frames[i] = store.ICGFrame{Chars: chars, Colors: colors}
+	}
+	return data
+}
+
 // ── Fixture data ──────────────────────────────────────────────────────────────
 
 // singleAnimFiles returns a minimal valid single-animation file set with the
-// given animation name, rooted at "<name>/".
+// given animation name, rooted at "<name>/". Uses ICG format.
 func singleAnimFiles(name string) map[string][]byte {
 	meta := map[string]any{
 		"name":    name,
@@ -115,13 +137,11 @@ func singleAnimFiles(name string) map[string][]byte {
 		}},
 	}
 	metaJSON, _ := json.Marshal(meta)
-	frames, _ := json.Marshal([]string{
-		`<span class="fg">frame0</span>`,
-		`<span class="fg">frame1</span>`,
-	})
+	icg := makeTestICGData(2, 40, 12)
+	framesJSON, _ := json.Marshal(icg)
 	return map[string][]byte{
 		name + "/meta.json":        metaJSON,
-		name + "/frames-1x1.json": frames,
+		name + "/frames-1x1.json": framesJSON,
 	}
 }
 
@@ -135,11 +155,14 @@ func multiVariantAnimFiles(name string) map[string][]byte {
 		},
 	}
 	metaJSON, _ := json.Marshal(meta)
-	frames, _ := json.Marshal([]string{`<span>f0</span>`})
+	icg1 := makeTestICGData(1, 40, 12)
+	icg2 := makeTestICGData(1, 80, 12)
+	frames1JSON, _ := json.Marshal(icg1)
+	frames2JSON, _ := json.Marshal(icg2)
 	return map[string][]byte{
 		name + "/meta.json":        metaJSON,
-		name + "/frames-1x1.json": frames,
-		name + "/frames-2x1.json": frames,
+		name + "/frames-1x1.json": frames1JSON,
+		name + "/frames-2x1.json": frames2JSON,
 	}
 }
 
@@ -383,7 +406,8 @@ func TestImport_MetaJSONMissingName_ReturnsSkipped(t *testing.T) {
 			"frames_file": "frames-1x1.json",
 		}},
 	})
-	frames, _ := json.Marshal([]string{"<span>f</span>"})
+	icg := makeTestICGData(1, 40, 12)
+	frames, _ := json.Marshal(icg)
 
 	res := e.postMultipart(t, "/api/ascii/import", map[string][]byte{
 		"noname/meta.json":        meta,
@@ -456,10 +480,8 @@ func TestImport_NoFiles_ReturnsSkipped(t *testing.T) {
 // seedAnimation inserts an animation directly into the store.
 func seedAnimation(t *testing.T, st *store.SQLiteStore, name, size, source string) {
 	t.Helper()
-	frames, _ := json.Marshal([]string{`<span>f0</span>`, `<span>f1</span>`})
-	var frameSlice []string
-	json.Unmarshal(frames, &frameSlice) //nolint:errcheck
-	gz, first, err := store.CompressFrames(frameSlice)
+	icg := makeTestICGData(2, 40, 12)
+	gz, first, err := store.CompressICG(&icg)
 	require.NoError(t, err)
 	err = st.Put(context.Background(), store.AnimationVariant{
 		Name:       name,
@@ -502,11 +524,12 @@ func TestExport_SingleAnimation_HappyPath(t *testing.T) {
 	assert.Equal(t, "1x1", meta.Variants[0].Size)
 	assert.Equal(t, "frames-1x1.json", meta.Variants[0].FramesFile)
 
-	// frames file must be valid JSON array.
+	// frames file must be valid ICG JSON.
 	framesData := zipFileContent(t, entries, "logo/frames-1x1.json")
-	var frameSlice []string
-	require.NoError(t, json.Unmarshal(framesData, &frameSlice))
-	assert.NotEmpty(t, frameSlice)
+	var icgData store.ICGData
+	require.NoError(t, json.Unmarshal(framesData, &icgData))
+	assert.NotEmpty(t, icgData.Frames)
+	assert.NotEmpty(t, icgData.ClassTable)
 }
 
 func TestExport_MultipleAnimations_PackFormat(t *testing.T) {

@@ -52,39 +52,52 @@ Describes a single animation and its size variants.
 
 ---
 
-## frames-<size>.json
+## frames-\<size\>.json (ICG format)
 
-Holds the actual animation frame data for one size variant.
+Holds the actual animation frame data for one size variant in **ICG (Indexed Color Grid)** format.
 
 ```json
-[
-  "frame0_html_string",
-  "frame1_html_string",
-  "frame2_html_string"
-]
+{
+  "class_table": ["", "ring", "spark"],
+  "frames": [
+    {
+      "chars": "  ;;====...\n  ...",
+      "colors": "AABBBCCaaa..."
+    }
+  ]
+}
 ```
 
 ### Structure
-- JSON array of strings
-- Each string is one frame's HTML content
-- Must contain at least 1 frame (empty array is an error)
-- Each frame string: `rows` lines joined by `\n`
-- Each line: exactly `cols` **visible characters** (text only, no HTML tags)
+- JSON object with `class_table` and `frames` arrays
+- `class_table[0]` is always `""` (empty string = default text color, no palette class)
+- Must contain at least 1 frame (empty frames array is an error)
+- Maximum 256 entries in `class_table` (indices are single bytes)
 
-### Frame HTML rules
+### class_table
 
-**Allowed:**
-- `<span class="paletteName">...</span>` — colors the enclosed text
-- `<br>` — inserts a visual line break (prefer `\n` for frame line separation)
-- Plain text characters
+Array of CSS class name strings. Index 0 is always `""` (default/no color). Other entries map to palette classes defined in meta.json.
 
-**Stripped by sanitizer (not an error, just removed):**
-- Any element not listed as allowed (e.g. `<div>`, `<p>`, `<b>`) — its text content is kept, tags removed
+| Index | Value | Meaning |
+|-------|-------|---------|
+| 0 | `""` | Default text color (no palette class applied) |
+| 1+ | class name | Maps to `palette[className]` in meta.json |
 
-**Stripped entirely (content also removed):**
-- `<script>`, `<style>`, `<svg>`, `<math>`, `<template>`, `<iframe>`, `<object>`, `<embed>`
+### ICG Frame fields
 
-**Palette class validation (SanitizePalette):**
+| Field | Type | Notes |
+|-------|------|-------|
+| `chars` | string | Plain text with `\n`-separated rows. Exactly `rows` lines, each exactly `cols` visible characters. No HTML, no entities — raw unicode. |
+| `colors` | string | Base64-encoded byte array. Length = `cols × rows` bytes. Each byte indexes into `class_table`. |
+
+### Resolution chain
+To get the color for cell at (row, col):
+1. `colorByte = colors[row * cols + col]`
+2. `className = class_table[colorByte]`
+3. `cssColor = palette[className]` (from meta.json)
+4. If `className` is `""` or not in palette → use default text color
+
+### Palette class validation (SanitizePalette)
 - Class name regex: `^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$`
   - Must start with letter or underscore
   - May contain letters, digits, hyphens, underscores
@@ -105,8 +118,8 @@ type AnimationVariant struct {
     Rows       int
     FPS        int
     Palette    map[string]string
-    FirstFrame string            // first frame as plain string (set on import)
-    FramesGzip []byte            // gzip-compressed JSON array of frames
+    FirstFrame string            // first frame as HTML string (generated for SSR)
+    FramesGzip []byte            // gzip-compressed ICG JSON blob (ICGData)
 }
 ```
 `FramesGzip` and `FirstFrame` are computed by the import handler; you never write them in files.
@@ -151,6 +164,11 @@ The import handler (`pkg/api/ascii.go`) auto-detects format:
 - **Pack**: if any uploaded file has basename `pack.json` at depth 2 (e.g. `my-pack/pack.json`)
 - **Single**: otherwise (looks for `meta.json` anywhere in the upload)
 
+### Frames file format detection
+The import handler also auto-detects whether a frames file is ICG format or legacy HTML:
+- Starts with `{` → ICG format (parsed as `ICGData`)
+- Starts with `[` → legacy HTML format (converted to ICG on import)
+
 ### Single animation folder structure
 ```
 my-animation/
@@ -180,4 +198,4 @@ When exporting via OMNI's UI (`/ascii` → Export), the server produces a zip wi
 - Single animation (1 selected): `<name>/meta.json` + `<name>/frames-<size>.json`
 - Multiple animations (2+): `<pack-name>/pack.json` + `<pack-name>/<anim>/meta.json` + frames files
 
-The frames filename is always derived as `frames-<size>.json` (e.g. `frames-1x1.json` for size `1x1`).
+Exported frames files are always in ICG format. The frames filename is always derived as `frames-<size>.json` (e.g. `frames-1x1.json` for size `1x1`).

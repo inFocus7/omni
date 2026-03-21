@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-preview.py — Play an ASCII animation in the terminal.
+preview.py — Play an ICG ASCII animation in the terminal.
 
 Usage:
   preview.py <path-to-animation-dir> [--variant SIZE] [--loop]
@@ -16,15 +16,12 @@ Controls:
 """
 
 import argparse
+import base64
 import json
 import os
 import re
 import sys
 import time
-
-TAG_RE = re.compile(r'<[^>]+>')
-SPAN_CLASS_RE = re.compile(r'<span\s+class="([^"]+)">', re.IGNORECASE)
-CLOSE_SPAN_RE = re.compile(r'</span>', re.IGNORECASE)
 
 # ANSI codes
 RESET       = "\033[0m"
@@ -101,45 +98,55 @@ def ansi_fg(r, g, b):
     return f"\033[38;5;{rgb_to_ansi256(r, g, b)}m"
 
 
-# ── Frame renderer ───────────────────────────────────────────────────────────
+# ── ICG Frame renderer ──────────────────────────────────────────────────────
 
-def render_frame(frame_html, palette_ansi):
+def render_frame_icg(frame, class_table, class_ansi):
     """
-    Convert a frame HTML string to terminal output with ANSI colors.
-    palette_ansi: dict of class_name → ANSI escape string
+    Render an ICG frame to a terminal string with ANSI colors.
+
+    frame:       dict with "chars" (plain text, \\n-separated) and "colors" (base64)
+    class_table: list of class names, index 0 = "" = default color
+    class_ansi:  dict of class_name → ANSI escape string (precomputed)
     """
+    chars = frame["chars"]
+    color_bytes = base64.b64decode(frame["colors"])
+
     output = []
-    pos = 0
-    text = frame_html
+    cell_idx = 0
+    prev_ansi = None
 
-    while pos < len(text):
-        # Check for opening span
-        m = SPAN_CLASS_RE.search(text, pos)
-        if m is None:
-            # No more spans — output remaining text as-is
-            chunk = TAG_RE.sub('', text[pos:])
-            output.append(chunk)
-            break
+    for ch in chars:
+        if ch == '\n':
+            # Reset color at end of row, then newline
+            if prev_ansi is not None:
+                output.append(RESET)
+                prev_ansi = None
+            output.append('\n')
+            continue
 
-        # Output text before the span (strip any other tags)
-        before = TAG_RE.sub('', text[pos:m.start()])
-        if before:
-            output.append(before)
-
-        cls = m.group(1).split()[0]  # first class token
-        ansi = palette_ansi.get(cls, '')
-
-        # Find matching </span>
-        end_m = CLOSE_SPAN_RE.search(text, m.end())
-        if end_m is None:
-            # No closing tag — treat rest as colored
-            inner = TAG_RE.sub('', text[m.end():])
-            output.append(ansi + inner + (RESET if ansi else ''))
-            break
+        # Look up color for this cell
+        if cell_idx < len(color_bytes):
+            class_idx = color_bytes[cell_idx]
         else:
-            inner = TAG_RE.sub('', text[m.end():end_m.start()])
-            output.append(ansi + inner + (RESET if ansi else ''))
-            pos = end_m.end()
+            class_idx = 0
+
+        class_name = class_table[class_idx] if class_idx < len(class_table) else ""
+        ansi = class_ansi.get(class_name) if class_name else None
+
+        # Only emit ANSI escape when the color changes
+        if ansi != prev_ansi:
+            if ansi is None:
+                output.append(RESET)
+            else:
+                output.append(ansi)
+            prev_ansi = ansi
+
+        output.append(ch)
+        cell_idx += 1
+
+    # Final reset
+    if prev_ansi is not None:
+        output.append(RESET)
 
     return ''.join(output)
 
@@ -147,7 +154,7 @@ def render_frame(frame_html, palette_ansi):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Preview an OMNI ASCII animation in the terminal.")
+    parser = argparse.ArgumentParser(description="Preview an ICG ASCII animation in the terminal.")
     parser.add_argument("path", help="Path to animation directory")
     parser.add_argument("--variant", default=None, help="Size variant to play, e.g. 1x1 (default: first)")
     parser.add_argument("--loop", action="store_true", help="Loop indefinitely until Ctrl+C")
@@ -190,26 +197,34 @@ def main():
         sys.exit(1)
 
     with open(frames_path, 'r', encoding='utf-8') as f:
-        frames = json.load(f)
+        frames_data = json.load(f)
+
+    # ICG format: { "class_table": [...], "frames": [{ "chars": "...", "colors": "..." }, ...] }
+    class_table = frames_data.get("class_table", [""])
+    frames = frames_data.get("frames", [])
 
     if not frames:
         print("Error: frames array is empty", file=sys.stderr)
         sys.exit(1)
 
-    # Build ANSI palette
+    # Build ANSI palette from class names
     palette = meta.get("palette") or {}
-    palette_ansi = {}
+    class_ansi = {}
     supports_color = sys.stdout.isatty()
     if supports_color:
-        for cls, color in palette.items():
-            rgb = css_to_rgb(color)
-            if rgb:
-                palette_ansi[cls] = ansi_fg(*rgb)
+        for cls_name in class_table:
+            if not cls_name:
+                continue  # index 0 = default, no color override
+            css_color = palette.get(cls_name)
+            if css_color:
+                rgb = css_to_rgb(css_color)
+                if rgb:
+                    class_ansi[cls_name] = ansi_fg(*rgb)
 
     delay = 1.0 / fps
     name = meta.get("name", "?")
 
-    print(f"\nPlaying '{name}' variant {size}  ({cols}×{rows}, {fps} FPS, {len(frames)} frames)")
+    print(f"\nPlaying '{name}' variant {size}  ({cols}x{rows}, {fps} FPS, {len(frames)} frames)")
     if args.loop:
         print("Looping — press Ctrl+C to stop\n")
     else:
@@ -223,7 +238,7 @@ def main():
         iteration = 0
         while True:
             for fi, frame in enumerate(frames):
-                rendered = render_frame(frame, palette_ansi)
+                rendered = render_frame_icg(frame, class_table, class_ansi)
                 lines = rendered.split('\n')
 
                 if supports_color:

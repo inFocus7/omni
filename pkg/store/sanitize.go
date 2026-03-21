@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -272,6 +271,91 @@ func NormalizeFrameHTML(input string, cols, rows int) (string, error) {
 	return buf.String(), nil
 }
 
+// WouldTruncateFrames returns true if any frame has visible content outside
+// the cols×rows boundary. This is a fast check that short-circuits on the
+// first frame with overflow — no normalization or output is produced.
+func WouldTruncateFrames(frames []string, cols, rows int) (bool, error) {
+	for _, f := range frames {
+		truncates, err := wouldTruncateFrame(f, cols, rows)
+		if err != nil {
+			return false, err
+		}
+		if truncates {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// wouldTruncateFrame parses a single frame and checks if any visible
+// (non-space) character falls outside cols×rows.
+func wouldTruncateFrame(input string, cols, rows int) (bool, error) {
+	r := strings.NewReader("<body>" + input + "</body>")
+	doc, err := html.Parse(r)
+	if err != nil {
+		return false, fmt.Errorf("parse frame HTML: %w", err)
+	}
+
+	var body *html.Node
+	var findBody func(*html.Node)
+	findBody = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "body" {
+			body = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findBody(c)
+		}
+	}
+	findBody(doc)
+	if body == nil {
+		return false, nil
+	}
+
+	lineIdx := 0
+	colIdx := 0
+	truncates := false
+
+	var walk func(*html.Node) bool
+	walk = func(n *html.Node) bool {
+		switch n.Type {
+		case html.TextNode:
+			for _, ch := range n.Data {
+				if ch == '\n' {
+					lineIdx++
+					colIdx = 0
+				} else {
+					if (lineIdx >= rows || colIdx >= cols) && ch != ' ' {
+						truncates = true
+						return true
+					}
+					colIdx++
+				}
+			}
+		case html.ElementNode:
+			if n.Data == "br" {
+				lineIdx++
+				colIdx = 0
+				return false
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				if walk(c) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	for c := body.FirstChild; c != nil; c = c.NextSibling {
+		if walk(c) {
+			break
+		}
+	}
+
+	return truncates, nil
+}
+
 // NormalizeFrames normalizes every frame in the slice to exactly cols×rows.
 func NormalizeFrames(frames []string, cols, rows int) ([]string, error) {
 	out := make([]string, len(frames))
@@ -285,31 +369,21 @@ func NormalizeFrames(frames []string, cols, rows int) ([]string, error) {
 	return out, nil
 }
 
-// sanitizeAndRecompressFrames decompresses v.FramesGzip, sanitizes each
-// frame with SanitizeFrameHTML, re-marshals, re-compresses, and returns an
-// updated AnimationVariant with clean FramesGzip and FirstFrame.
+// sanitizeAndRecompressFrames decompresses v.FramesGzip (ICG format),
+// validates class names, re-compresses, and regenerates FirstFrame HTML.
 func sanitizeAndRecompressFrames(v AnimationVariant) (AnimationVariant, error) {
-	plain, err := GzipDecompress(v.FramesGzip)
+	icg, err := DecompressICG(v.FramesGzip)
 	if err != nil {
-		return v, fmt.Errorf("decompress frames: %w", err)
+		return v, fmt.Errorf("decompress ICG frames: %w", err)
 	}
 
-	var frames []string
-	if err := json.Unmarshal(plain, &frames); err != nil {
-		return v, fmt.Errorf("unmarshal frames: %w", err)
+	if err := SanitizeICG(icg); err != nil {
+		return v, fmt.Errorf("sanitize ICG: %w", err)
 	}
 
-	for i, frame := range frames {
-		sanitized, err := SanitizeFrameHTML(frame)
-		if err != nil {
-			return v, fmt.Errorf("sanitize frame %d: %w", i, err)
-		}
-		frames[i] = sanitized
-	}
-
-	gz, firstFrame, err := CompressFrames(frames)
+	gz, firstFrame, err := CompressICG(icg)
 	if err != nil {
-		return v, fmt.Errorf("recompress frames: %w", err)
+		return v, fmt.Errorf("recompress ICG frames: %w", err)
 	}
 	v.FramesGzip = gz
 	v.FirstFrame = firstFrame

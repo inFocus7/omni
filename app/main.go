@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -391,7 +392,7 @@ func main() {
 	})
 
 	// ── ASCII Frames API ───────────────────────────────────
-	// Cache stores gzip-compressed bytes keyed by "name/size".
+	// Cache stores gzip-compressed ICG wire-format JSON keyed by "name/size".
 	// Served pre-compressed when client supports it, decompressed otherwise.
 	serveFrames := func(c *gin.Context, gz []byte) {
 		c.Header("Cache-Control", "public, max-age=86400")
@@ -409,6 +410,21 @@ func main() {
 		c.Data(http.StatusOK, "application/json; charset=utf-8", plain)
 	}
 
+	// buildWireFormat decompresses an ICG blob, resolves palette, and returns
+	// gzip-compressed wire-format JSON ready for caching and serving.
+	buildWireFormat := func(v *store.AnimationVariant) ([]byte, error) {
+		icg, err := store.DecompressICG(v.FramesGzip)
+		if err != nil {
+			return nil, err
+		}
+		wire := store.BuildICGWireFormat(icg, v.Palette, v.Cols, v.Rows)
+		wireJSON, err := json.Marshal(wire)
+		if err != nil {
+			return nil, err
+		}
+		return store.GzipCompress(wireJSON)
+	}
+
 	r.GET("/api/ascii/frames/:name", func(c *gin.Context) {
 		name := c.Param("name")
 		size := c.Query("size")
@@ -418,13 +434,13 @@ func main() {
 		}
 		cacheKey := name + "/" + size
 
-		// Fast path: cache hit (gzip bytes).
+		// Fast path: cache hit (gzip wire-format bytes).
 		if data, ok := asciiFrameCache.Load(cacheKey); ok {
 			serveFrames(c, data.([]byte))
 			return
 		}
 
-		// Cache miss: fetch directly from store — no decompression, blob is already gzip.
+		// Cache miss: fetch from store, build wire format, cache it.
 		v, err := st.GetVariant(c.Request.Context(), name, size)
 		if err != nil {
 			if err == store.ErrNotFound {
@@ -434,8 +450,13 @@ func main() {
 			}
 			return
 		}
-		asciiFrameCache.Store(cacheKey, v.FramesGzip)
-		serveFrames(c, v.FramesGzip)
+		wireGz, err := buildWireFormat(v)
+		if err != nil {
+			respondError(c, logger, http.StatusInternalServerError, err, "build wire format")
+			return
+		}
+		asciiFrameCache.Store(cacheKey, wireGz)
+		serveFrames(c, wireGz)
 	})
 
 	// ── ASCII CRUD API ─────────────────────────────────────

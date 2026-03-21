@@ -16,8 +16,9 @@ allowed-tools:
 Converts one or more GIFs into OMNI-importable ASCII animations. Supports both
 **single animation** output and **multi-animation pack** output. Uses Pillow for
 luminance-based character mapping and per-cell color extraction. Output uses
-RLE-compressed HTML spans — consecutive same-color characters share one
-`<span>`, background cells are plain unspanned spaces.
+**ICG (Indexed Color Grid) format** — each frame has plain text `chars` and a
+base64-encoded `colors` byte array indexing into a `class_table`. Background
+cells use index 0 (default color).
 
 ---
 
@@ -394,22 +395,12 @@ On name collision: OMNI will prompt to overwrite.
 
 ## Background rule
 
-Background cells are written as plain spaces — no `<span>`. This is the
-biggest single span savings. `gif_info.py` auto-detects the background color.
+Background cells use color index 0 (default text color) and are typically
+space characters. `gif_info.py` auto-detects the background color from the GIF.
 Confirm it in Step 1 — if the background is wrong, all other metrics suffer.
 
-Never span spaces unless the user explicitly wants a visible colored background.
-
----
-
-## RLE rule (mandatory)
-
-`gif_to_frames.py` enforces RLE automatically:
-
-```
-✓  <span class="mid">@@@###</span>       ← 1 span, 6 chars
-✗  <span class="mid">@</span><span class="mid">@</span>...  ← 6 spans, 6 chars
-```
+Never assign a non-zero color index to space cells unless the user explicitly
+wants a visible colored background.
 
 ---
 
@@ -417,16 +408,11 @@ Never span spaces unless the user explicitly wants a visible colored background.
 
 | Signal                             | Sev | Action                                         |
 | ---------------------------------- | --- | ---------------------------------------------- |
-| Avg spans/frame > 400              | ⚠   | Reduce palette colors                          |
-| Avg spans/frame > 400 AND FPS > 12 | ⚠⚠  | Reduce colors AND/OR FPS                       |
-| Avg run length < 3                 | ⚠   | Too fragmented — reduce palette or cols×rows   |
-| Avg run length < 2                 | ⚠⚠  | Severe fragmentation — strongly reduce palette |
-| Background ratio < 20%             | ⚠   | Check background color is correct              |
-| Overhead ratio > 50%               | ⚠   | Tag bytes dominate — reduce palette            |
 | Gzip > 500 KB                      | ⚠⚠  | Reduce FPS, cols×rows, or color count          |
 | Gzip 200–500 KB                    | ⚠   | Review if acceptable                           |
 | Frame count > 40                   | ⚠   | Consider reducing FPS                          |
-| Palette colors > 8                 | ⚠   | Monitor span count                             |
+| class_table > 8 entries            | ⚠   | Monitor file size                              |
+| Avg colors/frame > 5 KB            | ⚠   | Reduce cols×rows or class_table entries        |
 
 ---
 

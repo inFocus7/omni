@@ -262,58 +262,152 @@
 
   // ── ASCII animation controller ───────────────────────────
 
-  // Parse an HTML frame string into a DocumentFragment once, so _tick() can
-  // clone it via cloneNode(true) instead of re-parsing HTML every frame.
-  // Frames stay in JS memory (not mounted in the DOM) — only the active frame
-  // is ever attached, so there's no page weight / layout cost.
-  function parseFrameFragment(html) {
-    const tpl = document.createElement("template");
-    tpl.innerHTML = html;
-    return tpl.content;
-  }
+  // ── ICG Canvas Renderer ─────────────────────────────────
+  // Renders ASCII animations on a <canvas> element using fillText.
+  // Wire format: { palette: string[], cols, rows, frames: [{chars, colors}] }
+  // where colors is base64-encoded Uint8Array indexing into palette.
 
-  class AsciiAnimController {
-    constructor(canvas, frames, fps) {
-      this.canvas = canvas;
+  class AsciiCanvasRenderer {
+    constructor(container, data, fps) {
+      this.container = container;
+      this.palette = data.palette;
+      this.cols = data.cols;
+      this.rows = data.rows;
       this.fps = fps;
       this.interval = 1000 / fps;
       this.currentFrame = 0;
       this.lastFrameTime = 0;
       this.paused = false;
       this.rafId = null;
-      this.indicator = canvas.querySelector(".ascii-pause-indicator");
+      this.indicator = container.querySelector(".ascii-pause-indicator");
 
-      if (typeof frames[0] === "string") {
-        // Pre-parsed mode: parse each HTML string into a DocumentFragment once.
-        // On each tick we clone the fragment into the <pre> via replaceChildren(),
-        // avoiding innerHTML's repeated HTML-parse overhead.
-        this.fragments = frames.map(parseFrameFragment);
-        this.pre = canvas.querySelector(".ascii-frame");
-        if (!this.pre) {
-          this.pre = document.createElement("pre");
-          this.pre.className = "ascii-frame";
-          canvas.insertBefore(this.pre, this.indicator);
-        }
-        this.pre.replaceChildren(this.fragments[0].cloneNode(true));
-        this.frames = null;
+      // Decode base64 colors for each frame into Uint8Array
+      this.frames = data.frames.map((f) => ({
+        chars: f.chars,
+        colors: Uint8Array.from(atob(f.colors), (c) => c.charCodeAt(0)),
+      }));
+
+      // Create canvas element
+      this.canvas = document.createElement("canvas");
+      this.canvas.className = "ascii-render-canvas";
+      this.canvas.style.width = "100%";
+      this.canvas.style.height = "100%";
+      // Insert canvas before pause indicator
+      container.classList.remove("ascii-loading");
+      if (this.indicator) {
+        container.insertBefore(this.canvas, this.indicator);
       } else {
-        // Legacy mode: array of <pre> elements (inline/fallback path), hidden-toggle.
-        this.fragments = null;
-        this.pre = null;
-        this.frames = frames;
+        container.appendChild(this.canvas);
       }
 
-      // Pause/resume RAF when tab visibility changes to avoid wasted ticks
-      // and prevent a large timestamp gap causing a frame jump on return.
+      this.ctx = this.canvas.getContext("2d");
+      this._charW = 0;
+      this._charH = 0;
+      this._fontSize = 0;
+
+      // Resize canvas and measure font on container resize
+      this._ro = new ResizeObserver(() => this._resize());
+      this._ro.observe(container);
+      this._resize();
+      this._renderFrame(0);
+
+      // Pause/resume on tab visibility
       this._onVisibility = () => {
         if (document.hidden) {
           this._stopRAF();
         } else if (!this.paused) {
-          this.lastFrameTime = 0; // reset so next tick plays immediately
+          this.lastFrameTime = 0;
           this._startRAF();
         }
       };
       document.addEventListener("visibilitychange", this._onVisibility);
+    }
+
+    _resize() {
+      const rect = this.container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.floor(rect.width);
+      const h = Math.floor(rect.height);
+      if (w === 0 || h === 0) return;
+
+      this.canvas.width = w * dpr;
+      this.canvas.height = h * dpr;
+      this._canvasW = w;
+      this._canvasH = h;
+
+      // Cover-fit: scale font so content fills the container completely.
+      // Use 0.6 as the monospace char-width ratio (matches CSS sizing).
+      const fontByCols = w / (this.cols * 0.6);
+      const fontByRows = h / this.rows;
+      this._fontSize = Math.floor(Math.max(fontByCols, fontByRows));
+      if (this._fontSize < 1) this._fontSize = 1;
+
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.ctx.font = `${this._fontSize}px monospace`;
+      this.ctx.textBaseline = "top";
+
+      // Measure actual char dimensions
+      const metrics = this.ctx.measureText("M");
+      this._charW = metrics.width;
+      this._charH = this._fontSize;
+
+      // Compute centering offsets (content may overflow on one axis for cover-fit)
+      const contentW = this._charW * this.cols;
+      const contentH = this._charH * this.rows;
+      this._offsetX = (w - contentW) / 2;
+      this._offsetY = (h - contentH) / 2;
+
+      this._renderFrame(this.currentFrame);
+    }
+
+    _renderFrame(idx) {
+      const frame = this.frames[idx];
+      if (!frame) return;
+      const ctx = this.ctx;
+      const cw = this._charW;
+      const ch = this._charH;
+      const ox = this._offsetX || 0;
+      const oy = this._offsetY || 0;
+
+      ctx.clearRect(0, 0, this._canvasW, this._canvasH);
+
+      // Get default text color from CSS
+      const defaultColor =
+        getComputedStyle(this.container).color || "rgb(200,200,200)";
+
+      const lines = frame.chars.split("\n");
+      let colorIdx = 0;
+
+      for (let r = 0; r < lines.length && r < this.rows; r++) {
+        const line = lines[r];
+        const runes = Array.from(line);
+        const y = oy + r * ch;
+        let runStart = 0;
+        let runColor = "";
+
+        for (let c = 0; c <= runes.length; c++) {
+          let cellColor;
+          if (c < runes.length) {
+            const ci = frame.colors[colorIdx + c] || 0;
+            cellColor = ci < this.palette.length ? this.palette[ci] : "";
+            if (!cellColor) cellColor = defaultColor;
+          }
+
+          if (c === runes.length || (c > runStart && cellColor !== runColor)) {
+            // Flush the run
+            if (runStart < c) {
+              ctx.fillStyle = runColor;
+              const text = runes.slice(runStart, c).join("");
+              ctx.fillText(text, ox + runStart * cw, y);
+            }
+            runStart = c;
+            runColor = cellColor;
+          }
+          if (c === 0) runColor = cellColor;
+        }
+
+        colorIdx += runes.length;
+      }
     }
 
     _startRAF() {
@@ -335,12 +429,12 @@
 
     stop() {
       this._stopRAF();
+      this._ro.disconnect();
       document.removeEventListener("visibilitychange", this._onVisibility);
     }
 
     _tick(ts) {
-      if (!this.canvas.isConnected) {
-        // DOM removed — clean up fully.
+      if (!this.container.isConnected) {
         this.stop();
         return;
       }
@@ -348,21 +442,13 @@
       if (this.paused) return;
       if (ts - this.lastFrameTime < this.interval) return;
       this.lastFrameTime = ts;
-      if (this.fragments) {
-        this.currentFrame = (this.currentFrame + 1) % this.fragments.length;
-        this.pre.replaceChildren(
-          this.fragments[this.currentFrame].cloneNode(true),
-        );
-      } else {
-        this.frames[this.currentFrame].hidden = true;
-        this.currentFrame = (this.currentFrame + 1) % this.frames.length;
-        this.frames[this.currentFrame].hidden = false;
-      }
+      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+      this._renderFrame(this.currentFrame);
     }
 
     togglePause() {
       this.paused = !this.paused;
-      this.canvas.classList.toggle("ascii-canvas--paused", this.paused);
+      this.container.classList.toggle("ascii-canvas--paused", this.paused);
       if (this.indicator) this.indicator.hidden = !this.paused;
       if (this.paused) {
         this._stopRAF();
@@ -373,46 +459,7 @@
     }
   }
 
-  // Font scaling for an ascii canvas. Caches parsed cols/rows so parseInt isn't
-  // called on every resize tick. Reads from dataset on first call and when the
-  // dataset attributes change (e.g. the editor modal updates them).
-  // Returns the observer so callers that need to disconnect it can do so.
-  function setupAsciiCanvasFontScaling(canvas) {
-    const CHAR_W = 0.6;
-    const CHAR_H = 1.0;
-    let cachedCols = 0;
-    let cachedRows = 0;
-    let lastDataCols = "";
-    let lastDataRows = "";
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        // Re-parse only when dataset values actually change.
-        if (
-          canvas.dataset.asciiCols !== lastDataCols ||
-          canvas.dataset.asciiRows !== lastDataRows
-        ) {
-          lastDataCols = canvas.dataset.asciiCols;
-          lastDataRows = canvas.dataset.asciiRows;
-          cachedCols = parseInt(lastDataCols, 10) || 40;
-          cachedRows = parseInt(lastDataRows, 10) || 20;
-        }
-        canvas.style.fontSize =
-          Math.floor(
-            Math.max(
-              width / (cachedCols * CHAR_W),
-              height / (cachedRows * CHAR_H),
-            ),
-          ) + "px";
-      }
-    });
-    ro.observe(canvas);
-    return ro;
-  }
-
-  // In-memory cache: framesUrl → frameStrings[].
-  // Populated on first fetch; subsequent calls (e.g. after a breakpoint re-render)
-  // skip the fetch and JSON.parse entirely.
+  // In-memory cache: framesUrl → parsed ICG wire data.
   const asciiFramesCache = new Map();
 
   function loadFrames(url) {
@@ -420,55 +467,54 @@
       return Promise.resolve(asciiFramesCache.get(url));
     return fetch(url)
       .then((r) => r.json())
-      .then((frameStrings) => {
-        asciiFramesCache.set(url, frameStrings);
-        return frameStrings;
+      .then((data) => {
+        asciiFramesCache.set(url, data);
+        return data;
       });
   }
 
-  // Per-canvas setup: font scaling + lazy frame loading + animation start.
+  // Per-container setup: lazy frame loading + canvas animation.
   // Called by initAsciiAnimations() and widget picker loadPreview().
-  function initAsciiAnimationForCanvas(canvas) {
-    const fps = parseInt(canvas.dataset.asciiFps, 10) || 12;
-    const framesUrl = canvas.dataset.asciiFramesUrl;
+  function initAsciiAnimationForCanvas(container) {
+    const fps = parseInt(container.dataset.asciiFps, 10) || 12;
+    const framesUrl = container.dataset.asciiFramesUrl;
 
-    setupAsciiCanvasFontScaling(canvas);
-
-    function startController(frameStrings) {
-      if (frameStrings.length === 0) return;
-      const ctrl = new AsciiAnimController(canvas, frameStrings, fps);
+    function startRenderer(data) {
+      if (!data.frames || data.frames.length === 0) return;
+      const ctrl = new AsciiCanvasRenderer(container, data, fps);
       ctrl.start();
-      canvas.addEventListener("pointerdown", () => ctrl.togglePause());
+      container.addEventListener("pointerdown", () => ctrl.togglePause());
     }
 
-    if (canvas.dataset.asciiAutoplay !== undefined) {
+    if (container.dataset.asciiAutoplay !== undefined) {
       // Dashboard: lazy-load on viewport entry and autoplay.
       const io = new IntersectionObserver(
         (entries, observer) => {
           if (!entries[0].isIntersecting) return;
           observer.disconnect();
           loadFrames(framesUrl)
-            .then((frameStrings) => startController(frameStrings))
+            .then((data) => startRenderer(data))
             .catch(() => {
-              const inlinePre = canvas.querySelector(".ascii-frame");
-              if (inlinePre) inlinePre.hidden = false;
+              container.classList.remove("ascii-loading");
             });
         },
         { threshold: 0 },
       );
-      io.observe(canvas);
+      io.observe(container);
     } else {
-      // Gallery: show frame 0 statically, fetch + play on first click.
+      // Gallery: render frame 0 statically, fetch + animate on first click.
       let loaded = false;
-      canvas.addEventListener("click", () => {
-        if (loaded) return;
-        loaded = true;
-        loadFrames(framesUrl)
-          .then((frameStrings) => startController(frameStrings))
-          .catch(() => {
-            const inlinePre = canvas.querySelector(".ascii-frame");
-            if (inlinePre) inlinePre.hidden = false;
-          });
+      // Eagerly load and render first frame as static preview
+      loadFrames(framesUrl).then((data) => {
+        if (!data.frames || data.frames.length === 0) return;
+        const preview = new AsciiCanvasRenderer(container, data, fps);
+        preview._renderFrame(0);
+        // Don't start animation — just show frame 0
+        container.addEventListener("click", () => {
+          if (loaded) return;
+          loaded = true;
+          preview.start();
+        });
       });
     }
   }
@@ -1834,7 +1880,9 @@
 
     let modalMode = "create";
     let modalName = "";
+    // ICG data model: frames are {chars: string, colors: Uint8Array}
     let localFrames = [];
+    let localClassTable = [""]; // index 0 = "" = default color
     let confirmedCols = 80;
     let confirmedRows = 24;
 
@@ -1847,11 +1895,28 @@
     let previewRo = null; // ResizeObserver for font scaling
 
     // ── Grid editing state ──────────────────────────────
-    let currentGrid = null;
     let isPainting = false;
     let gridRenderTimer = null;
     let onionSkinEnabled = false;
     let activeTool = "cursor"; // 'cursor' | 'pencil'
+
+    // ── ICG frame helpers ───────────────────────────────
+    function makeBlankICGFrame(cols, rows) {
+      return {
+        chars: Array.from({ length: rows }, () => " ".repeat(cols)).join("\n"),
+        colors: new Uint8Array(cols * rows),
+      };
+    }
+
+    function getClassIndex(cls) {
+      if (!cls) return 0;
+      let idx = localClassTable.indexOf(cls);
+      if (idx === -1) {
+        localClassTable.push(cls);
+        idx = localClassTable.length - 1;
+      }
+      return idx;
+    }
 
     // ── Drag resize handle ───────────────────────────────
     if (resizeHandle && sidebar && modal) {
@@ -1884,140 +1949,150 @@
       });
     }
 
-    // ── HTML ↔ Grid parsers ──────────────────────────────
-
-    function htmlToGrid(frameHtml, cols, rows) {
-      const grid = [];
-      const lines = frameHtml.split("\n");
-      for (let r = 0; r < rows; r++) {
-        const line = lines[r] || "";
-        const cells = [];
-        let currentCls = "";
-        let i = 0;
-        // Walk the line character by character, handling span tags
-        while (i < line.length) {
-          if (line[i] === "<") {
-            // Check for </span>
-            if (line.startsWith("</span>", i)) {
-              currentCls = "";
-              i += 7;
-              continue;
-            }
-            // Check for <span class="...">
-            const spanMatch = line.slice(i).match(/^<span class="([^"]*)">/);
-            if (spanMatch) {
-              currentCls = spanMatch[1];
-              i += spanMatch[0].length;
-              continue;
-            }
-            // Unknown tag — skip to closing >
-            const end = line.indexOf(">", i);
-            i = end >= 0 ? end + 1 : line.length;
-            continue;
+    // ── Editor font scaling (DOM-based preview) ──────────
+    function setupAsciiCanvasFontScaling(el) {
+      const CHAR_W = 0.6;
+      const CHAR_H = 1.0;
+      let cachedCols = 0;
+      let cachedRows = 0;
+      let lastDataCols = "";
+      let lastDataRows = "";
+      const ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (
+            el.dataset.asciiCols !== lastDataCols ||
+            el.dataset.asciiRows !== lastDataRows
+          ) {
+            lastDataCols = el.dataset.asciiCols;
+            lastDataRows = el.dataset.asciiRows;
+            cachedCols = parseInt(lastDataCols, 10) || 40;
+            cachedRows = parseInt(lastDataRows, 10) || 20;
           }
-          // Decode common HTML entities
-          if (line[i] === "&") {
-            const semi = line.indexOf(";", i);
-            if (semi >= 0 && semi - i <= 8) {
-              const entity = line.slice(i, semi + 1);
-              let ch = entity;
-              if (entity === "&amp;") ch = "&";
-              else if (entity === "&lt;") ch = "<";
-              else if (entity === "&gt;") ch = ">";
-              else if (entity === "&nbsp;") ch = " ";
-              else if (entity.startsWith("&#x")) {
-                ch = String.fromCodePoint(parseInt(entity.slice(3, -1), 16));
-              } else if (entity.startsWith("&#")) {
-                ch = String.fromCodePoint(parseInt(entity.slice(2, -1), 10));
-              }
-              if (cells.length < cols) cells.push({ ch, cls: currentCls });
-              i = semi + 1;
-              continue;
-            }
-          }
-          // Regular character — use Array.from for proper Unicode codepoint
-          const cp = Array.from(line.slice(i))[0];
-          if (cells.length < cols) cells.push({ ch: cp, cls: currentCls });
-          i += cp.length;
+          el.style.fontSize =
+            Math.floor(
+              Math.min(
+                width / (cachedCols * CHAR_W),
+                height / (cachedRows * CHAR_H),
+              ),
+            ) + "px";
         }
-        // Pad row to cols
-        while (cells.length < cols) cells.push({ ch: " ", cls: "" });
-        grid.push(cells);
-      }
-      // Pad to rows
-      while (grid.length < rows) {
-        grid.push(Array.from({ length: cols }, () => ({ ch: " ", cls: "" })));
-      }
-      return grid;
+      });
+      ro.observe(el);
+      return ro;
     }
 
-    function gridToHtml(grid) {
-      return grid
-        .map((row) => {
-          let line = "";
-          let i = 0;
-          while (i < row.length) {
-            const cls = row[i].cls;
-            // Find run of same class
-            let j = i + 1;
-            while (j < row.length && row[j].cls === cls) j++;
-            const chars = row
-              .slice(i, j)
-              .map((c) => escapeHtmlChar(c.ch))
-              .join("");
-            if (cls) {
-              line += `<span class="${escapeHtml(cls)}">${chars}</span>`;
-            } else {
-              line += chars;
-            }
-            i = j;
+    // ── ICG cell accessors ──────────────────────────────
+
+    function getCell(frame, cols, row, col) {
+      const lines = frame.chars.split("\n");
+      const runes = Array.from(lines[row] || "");
+      const ch = col < runes.length ? runes[col] : " ";
+      const ci = frame.colors[row * cols + col] || 0;
+      const cls = ci < localClassTable.length ? localClassTable[ci] : "";
+      return { ch, cls };
+    }
+
+    function setCell(frame, cols, row, col, ch, cls) {
+      const lines = frame.chars.split("\n");
+      while (lines.length <= row)
+        lines.push(" ".repeat(cols));
+      const runes = Array.from(lines[row]);
+      while (runes.length <= col)
+        runes.push(" ");
+      runes[col] = ch;
+      lines[row] = runes.join("");
+      frame.chars = lines.join("\n");
+      frame.colors[row * cols + col] = getClassIndex(cls);
+    }
+
+    // Convert an ICG frame to HTML for the <pre>-based preview rendering.
+    function icgFrameToHtml(frame, cols, rows) {
+      const lines = frame.chars.split("\n");
+      const result = [];
+      let colorIdx = 0;
+      for (let r = 0; r < rows && r < lines.length; r++) {
+        const runes = Array.from(lines[r]);
+        let line = "";
+        let i = 0;
+        while (i < runes.length && i < cols) {
+          const ci = frame.colors[colorIdx + i] || 0;
+          const cls = ci < localClassTable.length ? localClassTable[ci] : "";
+          let j = i + 1;
+          while (j < runes.length && j < cols) {
+            const nci = frame.colors[colorIdx + j] || 0;
+            const ncls = nci < localClassTable.length ? localClassTable[nci] : "";
+            if (ncls !== cls) break;
+            j++;
           }
-          return line;
-        })
-        .join("\n");
-    }
-
-    function escapeHtmlChar(ch) {
-      if (ch === "&") return "&amp;";
-      if (ch === "<") return "&lt;";
-      if (ch === ">") return "&gt;";
-      return ch;
+          const chars = runes.slice(i, j).map((c) => {
+            if (c === "&") return "&amp;";
+            if (c === "<") return "&lt;";
+            if (c === ">") return "&gt;";
+            return c;
+          }).join("");
+          if (cls) {
+            line += `<span class="${escapeHtml(cls)}">${chars}</span>`;
+          } else {
+            line += chars;
+          }
+          i = j;
+        }
+        result.push(line);
+        colorIdx += runes.length;
+      }
+      return result.join("\n");
     }
 
     // ── Frame normalization ──────────────────────────────
 
-    function blankFrame(cols, rows) {
-      return Array.from({ length: rows }, () => " ".repeat(cols)).join("\n");
+    // Serialize localFrames to JSON for API calls.
+    function serializeICGFrames() {
+      return localFrames.map((f) => ({
+        chars: f.chars,
+        colors: btoa(String.fromCharCode(...f.colors)),
+      }));
     }
 
     // Normalize all localFrames to exactly cols×rows via server-side processing.
-    // Returns a promise; the caller should show a loading state while awaiting.
     async function normalizeFramesAsync(cols, rows) {
       const res = await fetch("/api/ascii/normalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ frames: localFrames, cols, rows }),
+        body: JSON.stringify({
+          class_table: localClassTable,
+          frames: serializeICGFrames(),
+          cols,
+          rows,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Normalization failed");
       }
       const data = await res.json();
-      localFrames = data.frames;
+      localClassTable = data.class_table || [""];
+      localFrames = (data.frames || []).map((f) => ({
+        chars: f.chars,
+        colors: Uint8Array.from(atob(f.colors), (c) => c.charCodeAt(0)),
+      }));
     }
 
-    // Returns true if normalizing to newCols×newRows would truncate any existing content.
-    function wouldTruncate(newCols, newRows) {
-      const tmp = document.createElement("span");
-      for (const frame of localFrames) {
-        const lines = frame.split("\n");
-        if (lines.length > newRows) return true;
-        for (const line of lines) {
-          tmp.innerHTML = line;
-          if (Array.from(tmp.textContent).length > newCols) return true;
-        }
-      }
-      return false;
+    // Returns true if normalizing to newCols×newRows would truncate visible content.
+    async function wouldTruncateAsync(newCols, newRows) {
+      const res = await fetch("/api/ascii/would-truncate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          class_table: localClassTable,
+          frames: serializeICGFrames(),
+          cols: newCols,
+          rows: newRows,
+        }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return data.truncates;
     }
 
     // ── Palette helpers ──────────────────────────────────
@@ -2199,7 +2274,7 @@
       if (onionSkinEnabled && frameIndex > 0) {
         const onion = document.createElement("pre");
         onion.className = "ascii-frame ascii-onion";
-        onion.innerHTML = localFrames[frameIndex - 1];
+        onion.innerHTML = icgFrameToHtml(localFrames[frameIndex - 1], cols, rows);
         canvas.insertBefore(onion, canvas.firstChild);
       }
 
@@ -2210,7 +2285,7 @@
         pre.className = "ascii-frame";
         canvas.appendChild(pre);
       }
-      pre.innerHTML = localFrames[frameIndex];
+      pre.innerHTML = icgFrameToHtml(localFrames[frameIndex], cols, rows);
 
       updatePreviewAspectRatio();
       updateFrameCounter();
@@ -2262,11 +2337,6 @@
     }
 
     function goToFrame(n) {
-      // Flush any dirty grid back to localFrames
-      if (currentGrid !== null) {
-        localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-        currentGrid = null;
-      }
       currentFrameIndex = Math.max(0, Math.min(n, localFrames.length - 1));
       renderFrameLocally(currentFrameIndex);
       updateFrameCounter();
@@ -2365,15 +2435,11 @@
     if (opDup)
       opDup.addEventListener("click", () => {
         if (localFrames.length === 0) return;
-        if (currentGrid !== null) {
-          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-          currentGrid = null;
-        }
-        localFrames.splice(
-          currentFrameIndex + 1,
-          0,
-          localFrames[currentFrameIndex],
-        );
+        const src = localFrames[currentFrameIndex];
+        localFrames.splice(currentFrameIndex + 1, 0, {
+          chars: src.chars,
+          colors: new Uint8Array(src.colors),
+        });
         goToFrame(currentFrameIndex + 1);
         syncTimeline();
       });
@@ -2382,10 +2448,7 @@
       opBlank.addEventListener("click", () => {
         const cols = parseInt(colsInput?.value, 10) || 80;
         const rows = parseInt(rowsInput?.value, 10) || 24;
-        const blank = Array.from({ length: rows }, () => " ".repeat(cols)).join(
-          "\n",
-        );
-        localFrames.splice(currentFrameIndex + 1, 0, blank);
+        localFrames.splice(currentFrameIndex + 1, 0, makeBlankICGFrame(cols, rows));
         goToFrame(currentFrameIndex + 1);
         syncTimeline();
       });
@@ -2394,7 +2457,6 @@
       opDel.addEventListener("click", () => {
         if (localFrames.length <= 1) return;
         localFrames.splice(currentFrameIndex, 1);
-        currentGrid = null;
         goToFrame(Math.min(currentFrameIndex, localFrames.length - 1));
         syncTimeline();
       });
@@ -2402,10 +2464,6 @@
     if (opLeft)
       opLeft.addEventListener("click", () => {
         if (currentFrameIndex === 0) return;
-        if (currentGrid !== null) {
-          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-          currentGrid = null;
-        }
         [localFrames[currentFrameIndex], localFrames[currentFrameIndex - 1]] = [
           localFrames[currentFrameIndex - 1],
           localFrames[currentFrameIndex],
@@ -2417,10 +2475,6 @@
     if (opRight)
       opRight.addEventListener("click", () => {
         if (currentFrameIndex >= localFrames.length - 1) return;
-        if (currentGrid !== null) {
-          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-          currentGrid = null;
-        }
         [localFrames[currentFrameIndex], localFrames[currentFrameIndex + 1]] = [
           localFrames[currentFrameIndex + 1],
           localFrames[currentFrameIndex],
@@ -2476,12 +2530,9 @@
       const r = +cellEl.dataset.row;
       const c = +cellEl.dataset.col;
       const cols = parseInt(colsInput?.value, 10) || 80;
-      const rows = parseInt(rowsInput?.value, 10) || 24;
-      if (currentGrid === null)
-        currentGrid = htmlToGrid(localFrames[currentFrameIndex], cols, rows);
       const ch = Array.from(toolChar?.value || " ")[0] || " ";
       const cls = toolClass?.value || "";
-      currentGrid[r][c] = { ch, cls };
+      setCell(localFrames[currentFrameIndex], cols, r, c, ch, cls);
       scheduleGridRender();
     }
 
@@ -2489,12 +2540,16 @@
       if (gridRenderTimer) return;
       gridRenderTimer = setTimeout(() => {
         gridRenderTimer = null;
-        if (currentGrid !== null) {
-          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-          const canvas = previewPane?.querySelector(".ascii-canvas");
-          const pre = canvas?.querySelector(".ascii-frame:not(.ascii-onion)");
-          if (pre) pre.innerHTML = localFrames[currentFrameIndex];
-        }
+        const cols = parseInt(colsInput?.value, 10) || 80;
+        const rows = parseInt(rowsInput?.value, 10) || 24;
+        const canvas = previewPane?.querySelector(".ascii-canvas");
+        const pre = canvas?.querySelector(".ascii-frame:not(.ascii-onion)");
+        if (pre)
+          pre.innerHTML = icgFrameToHtml(
+            localFrames[currentFrameIndex],
+            cols,
+            rows,
+          );
       }, 16);
     }
 
@@ -2507,14 +2562,7 @@
           const r = +cell.dataset.row,
             c = +cell.dataset.col;
           const cols = parseInt(colsInput?.value, 10) || 80;
-          const rows = parseInt(rowsInput?.value, 10) || 24;
-          if (currentGrid === null)
-            currentGrid = htmlToGrid(
-              localFrames[currentFrameIndex],
-              cols,
-              rows,
-            );
-          const picked = currentGrid[r]?.[c];
+          const picked = getCell(localFrames[currentFrameIndex], cols, r, c);
           if (picked) {
             if (toolChar) toolChar.value = picked.ch === " " ? " " : picked.ch;
             if (asciiFlyoutChar)
@@ -2609,7 +2657,6 @@
       confirmedCols = cols;
       confirmedRows = rows;
       currentFrameIndex = 0;
-      currentGrid = null;
       showTimeline();
       syncTimeline();
     }
@@ -2738,7 +2785,6 @@
           if (previewPane) previewPane.classList.remove("ascii-loading");
           confirmedCols = newCols;
           confirmedRows = newRows;
-          currentGrid = null;
           syncTimeline();
           if (activeTool === "pencil") buildGridOverlay(newCols, newRows);
         };
@@ -2749,15 +2795,20 @@
           if (activeTool === "pencil")
             buildGridOverlay(confirmedCols, confirmedRows);
         };
-        if (wouldTruncate(newCols, newRows)) {
-          showConfirm(
-            `Resizing to ${newCols}×${newRows} will permanently trim content outside the new boundaries. Continue?`,
-            applyResize,
-            revertResize,
-          );
-        } else {
-          applyResize();
-        }
+        // Check server-side if resize would truncate content.
+        if (previewPane) previewPane.classList.add('ascii-loading');
+        wouldTruncateAsync(newCols, newRows).then(truncates => {
+          if (previewPane) previewPane.classList.remove('ascii-loading');
+          if (truncates) {
+            showConfirm(
+              `Resizing to ${newCols}×${newRows} will permanently trim content outside the new boundaries. Continue?`,
+              applyResize,
+              revertResize,
+            );
+          } else {
+            applyResize();
+          }
+        });
       });
     });
 
@@ -2785,8 +2836,8 @@
         if (previewPane) previewPane.appendChild(gridOverlay);
       }
       localFrames = [];
+      localClassTable = [""];
       currentFrameIndex = 0;
-      currentGrid = null;
       isPlaying = false;
     }
 
@@ -2822,8 +2873,8 @@
       }
       if (frameCounter) frameCounter.textContent = "0 / 0";
       localFrames = [];
+      localClassTable = [""];
       currentFrameIndex = 0;
-      currentGrid = null;
       isPlaying = false;
       onionSkinEnabled = false;
       activeTool = "cursor";
@@ -2855,7 +2906,8 @@
         if (rowsInput) rowsInput.value = "24";
         if (fpsInput) fpsInput.value = "12";
         updatePreviewAspectRatio();
-        localFrames = [blankFrame(80, 24)];
+        localClassTable = [""];
+        localFrames = [makeBlankICGFrame(80, 24)];
         framesLoaded();
       } else {
         if (titleEl) titleEl.textContent = `Edit: ${animName}`;
@@ -2868,6 +2920,7 @@
         if (rowsInput) rowsInput.value = "24";
         if (fpsInput) fpsInput.value = "12";
 
+        let metaPalette = {}; // palette from variant metadata (class->color)
         const metaP = fetch(
           `/api/ascii/animations/${encodeURIComponent(animName)}`,
         )
@@ -2881,25 +2934,45 @@
             if (colsInput) colsInput.value = v.cols || 80;
             if (rowsInput) rowsInput.value = v.rows || 24;
             if (fpsInput) fpsInput.value = v.fps || 12;
-            if (v.palette)
+            if (v.palette) {
+              metaPalette = v.palette;
               Object.entries(v.palette).forEach(([cls, color]) =>
                 addPaletteRow(cls, color),
               );
+            }
           })
           .catch(() => {});
 
         if (variantSize) {
-          const framesP = fetch(
-            `/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`,
-          )
-            .then((r) => r.json())
-            .then((frames) => {
-              localFrames = frames;
-            })
-            .catch(() => {});
-
-          Promise.all([metaP, framesP]).then(() => {
-            if (localFrames.length > 0) framesLoaded();
+          // Wait for metaP first so we have the palette for reverse-mapping
+          metaP.then(() => {
+            fetch(
+              `/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`,
+            )
+              .then((r) => r.json())
+              .then((data) => {
+                // ICG wire format: { palette, cols, rows, frames: [{chars, colors}] }
+                if (data.palette && data.frames) {
+                  // Rebuild localClassTable: reverse-map resolved wire colors
+                  // back to class names using the variant's palette from meta.
+                  const colorToClass = {};
+                  for (const [cls, color] of Object.entries(metaPalette)) {
+                    colorToClass[color] = cls;
+                  }
+                  localClassTable = [""];
+                  for (let i = 1; i < data.palette.length; i++) {
+                    const color = data.palette[i];
+                    const cls = colorToClass[color] || `c${i}`;
+                    localClassTable.push(cls);
+                  }
+                  localFrames = data.frames.map((f) => ({
+                    chars: f.chars,
+                    colors: Uint8Array.from(atob(f.colors), (c) => c.charCodeAt(0)),
+                  }));
+                  if (localFrames.length > 0) framesLoaded();
+                }
+              })
+              .catch(() => {});
           });
         }
       }
@@ -2940,12 +3013,6 @@
 
     if (saveBtn) {
       saveBtn.addEventListener("click", () => {
-        // Flush dirty grid
-        if (currentGrid !== null) {
-          localFrames[currentFrameIndex] = gridToHtml(currentGrid);
-          currentGrid = null;
-        }
-
         const err = validate();
         if (err) {
           if (errorsEl) errorsEl.textContent = err;
@@ -2978,7 +3045,8 @@
             rows,
             fps,
             palette,
-            frames: localFrames,
+            class_table: localClassTable,
+            icg_frames: serializeICGFrames(),
           }),
         })
           .then((r) => {

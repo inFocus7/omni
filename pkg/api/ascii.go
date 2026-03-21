@@ -43,6 +43,7 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 	r.DELETE("/api/ascii/animations/:name/:size", h.DeleteVariant)
 	r.POST("/api/ascii/animations/preview", h.Preview)
 	r.POST("/api/ascii/normalize", h.Normalize)
+	r.POST("/api/ascii/would-truncate", h.WouldTruncate)
 	r.POST("/api/ascii/import", h.Import)
 	r.POST("/api/ascii/export", h.Export)
 }
@@ -77,10 +78,34 @@ type exportRequest struct {
 }
 
 // animationRequest is the HTTP request body for Create and Update.
-// Frames accepts plain []string from the client; the handler compresses them.
+// Accepts either ICG format (class_table + frames as objects) or legacy HTML
+// (frames as []string). Detection is automatic.
 type animationRequest struct {
 	store.AnimationVariant
-	Frames []string `json:"frames"`
+	// ICG format fields
+	ClassTable []string         `json:"class_table,omitempty"`
+	ICGFrames  []store.ICGFrame `json:"icg_frames,omitempty"`
+	// Legacy HTML format
+	Frames []string `json:"frames,omitempty"`
+}
+
+// toICG converts the request body to ICGData, handling both ICG and legacy HTML formats.
+func (req *animationRequest) toICG() (*store.ICGData, error) {
+	if len(req.ClassTable) > 0 && len(req.ICGFrames) > 0 {
+		return &store.ICGData{ClassTable: req.ClassTable, Frames: req.ICGFrames}, nil
+	}
+	if len(req.Frames) > 0 {
+		cols := req.Cols
+		rows := req.Rows
+		if cols < 1 {
+			cols = 80
+		}
+		if rows < 1 {
+			rows = 24
+		}
+		return store.HTMLFramesToICG(req.Frames, cols, rows)
+	}
+	return nil, fmt.Errorf("request must include either icg_frames+class_table or frames")
 }
 
 // ListSummaries returns animation metadata with first frames for gallery rendering.
@@ -125,15 +150,15 @@ func (h *AsciiAPI) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	if req.Cols > 0 && req.Rows > 0 {
-		normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "normalize: " + err.Error()})
-			return
-		}
-		req.Frames = normalized
+	icg, err := req.toICG()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-	gz, first, err := store.CompressFrames(req.Frames)
+	if req.Cols > 0 && req.Rows > 0 {
+		icg = store.NormalizeICG(icg, req.Cols, req.Rows)
+	}
+	gz, first, err := store.CompressICG(icg)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -162,15 +187,15 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 	if req.Name == "" {
 		req.Name = name
 	}
-	if req.Cols > 0 && req.Rows > 0 {
-		normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "normalize: " + err.Error()})
-			return
-		}
-		req.Frames = normalized
+	icg, err := req.toICG()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-	gz, first, err := store.CompressFrames(req.Frames)
+	if req.Cols > 0 && req.Rows > 0 {
+		icg = store.NormalizeICG(icg, req.Cols, req.Rows)
+	}
+	gz, first, err := store.CompressICG(icg)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -188,13 +213,13 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Normalize accepts frames + cols/rows and returns frames normalized to exact dimensions.
-// This offloads the expensive HTML parse → grid → serialize round-trip from the client.
+// Normalize accepts ICG frames + cols/rows and returns normalized ICG frames.
 func (h *AsciiAPI) Normalize(c *gin.Context) {
 	var req struct {
-		Frames []string `json:"frames"`
-		Cols   int      `json:"cols"`
-		Rows   int      `json:"rows"`
+		ClassTable []string         `json:"class_table"`
+		Frames     []store.ICGFrame `json:"frames"`
+		Cols       int              `json:"cols"`
+		Rows       int              `json:"rows"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
@@ -205,15 +230,33 @@ func (h *AsciiAPI) Normalize(c *gin.Context) {
 		return
 	}
 	if len(req.Frames) == 0 {
-		c.JSON(http.StatusOK, gin.H{"frames": []string{}})
+		c.JSON(http.StatusOK, gin.H{"class_table": req.ClassTable, "frames": []store.ICGFrame{}})
 		return
 	}
-	normalized, err := store.NormalizeFrames(req.Frames, req.Cols, req.Rows)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	icg := &store.ICGData{ClassTable: req.ClassTable, Frames: req.Frames}
+	normalized := store.NormalizeICG(icg, req.Cols, req.Rows)
+	c.JSON(http.StatusOK, gin.H{"class_table": normalized.ClassTable, "frames": normalized.Frames})
+}
+
+// WouldTruncate checks if resizing frames to cols×rows would lose visible content.
+func (h *AsciiAPI) WouldTruncate(c *gin.Context) {
+	var req struct {
+		ClassTable []string         `json:"class_table"`
+		Frames     []store.ICGFrame `json:"frames"`
+		Cols       int              `json:"cols"`
+		Rows       int              `json:"rows"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"frames": normalized})
+	if req.Cols < 1 || req.Rows < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cols and rows must be positive"})
+		return
+	}
+	icg := &store.ICGData{ClassTable: req.ClassTable, Frames: req.Frames}
+	truncates := store.WouldTruncateICG(icg, req.Cols, req.Rows)
+	c.JSON(http.StatusOK, gin.H{"truncates": truncates})
 }
 
 // Delete removes an animation from the store, registry, and cache.
@@ -271,7 +314,12 @@ func (h *AsciiAPI) Preview(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	_, first, err := store.CompressFrames(req.Frames)
+	icg, err := req.toICG()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	_, first, err := store.CompressICG(icg)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -409,17 +457,39 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 			}
 		}
 
-		var frames []string
-		if err := json.Unmarshal(framesData, &frames); err != nil {
-			return ImportResult{
-				Skipped: []SkippedAnimation{{
-					Name:   meta.Name,
-					Reason: fmt.Sprintf("%s/%s: invalid frames JSON", meta.Name, variant.Size),
-				}},
+		var icg *store.ICGData
+		if store.IsICGFormat(framesData) {
+			icg, err = store.ParseICGFramesFile(framesData)
+			if err != nil {
+				return ImportResult{
+					Skipped: []SkippedAnimation{{
+						Name:   meta.Name,
+						Reason: fmt.Sprintf("%s/%s: invalid ICG frames: %s", meta.Name, variant.Size, err.Error()),
+					}},
+				}
+			}
+		} else {
+			var frames []string
+			if err := json.Unmarshal(framesData, &frames); err != nil {
+				return ImportResult{
+					Skipped: []SkippedAnimation{{
+						Name:   meta.Name,
+						Reason: fmt.Sprintf("%s/%s: invalid frames JSON", meta.Name, variant.Size),
+					}},
+				}
+			}
+			icg, err = store.HTMLFramesToICG(frames, variant.Cols, variant.Rows)
+			if err != nil {
+				return ImportResult{
+					Skipped: []SkippedAnimation{{
+						Name:   meta.Name,
+						Reason: fmt.Sprintf("%s/%s: convert error: %s", meta.Name, variant.Size, err.Error()),
+					}},
+				}
 			}
 		}
 
-		gz, firstFrame, err := store.CompressFrames(frames)
+		gz, firstFrame, err := store.CompressICG(icg)
 		if err != nil {
 			return ImportResult{
 				Skipped: []SkippedAnimation{{
@@ -627,15 +697,20 @@ func (h *AsciiAPI) Export(c *gin.Context) {
 			return
 		}
 
-		// Write frames files.
+		// Write frames files (ICG format).
 		for _, v := range anim.variants {
-			rawJSON, err := store.GzipDecompress(v.FramesGzip)
+			icg, err := store.DecompressICG(v.FramesGzip)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("decompress frames for %s/%s: %s", anim.name, v.Size, err.Error())})
 				return
 			}
+			icgJSON, err := json.Marshal(icg)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal ICG for %s/%s: %s", anim.name, v.Size, err.Error())})
+				return
+			}
 			framesFile := fmt.Sprintf("frames-%s.json", v.Size)
-			if err := writeZipFile(zw, animDir+framesFile, rawJSON); err != nil {
+			if err := writeZipFile(zw, animDir+framesFile, icgJSON); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
