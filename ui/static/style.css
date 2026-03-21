@@ -3317,28 +3317,38 @@ a:hover {
 
 /* ── Canvas toolbar (Edit / Onion skin — above the preview pane) ── */
 
-/* Canvas wrapper: sizing context for absolutely-positioned strip + flyout */
+/* Canvas wrapper: flex row — tool col sits to the left, preview fills the rest */
 .ascii-canvas-wrapper {
-    position: relative;
-    display: inline-block;
-    line-height: 0; /* collapse phantom space below inline-block children */
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    align-items: flex-start;
+    line-height: 0;
 }
 
-/* Tool strip: thin icon column pinned to the left edge of the canvas */
-.ascii-tool-strip {
-    position: absolute;
-    left: 0;
-    top: 0;
-    height: 100%;
-    width: 32px;
+/* Detached tool column — styled like a panel, not overlaid on the canvas */
+.ascii-tool-col {
+    position: relative; /* flyout is absolute relative to this */
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 4px 0;
     gap: 2px;
-    background: color-mix(in srgb, var(--surface) 85%, transparent);
-    border-right: 1px solid var(--border);
-    z-index: 10;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    flex-shrink: 0;
+    align-self: flex-start;
+    box-sizing: border-box;
+}
+
+/* Tool strip: plain flex column of icon buttons inside the col */
+.ascii-tool-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 24px;
     box-sizing: border-box;
 }
 
@@ -3378,11 +3388,11 @@ a:hover {
     margin: 2px 0;
 }
 
-/* Tool flyout: floats to the right of the strip when pencil is active */
+/* Tool flyout: floats to the right of the tool col when pencil is active */
 .ascii-tool-flyout {
     position: absolute;
-    left: 36px; /* strip (32px) + 4px gap */
-    top: 8px;
+    left: calc(100% + 8px);
+    top: 0;
     z-index: 10;
     background: var(--surface);
     border: 1px solid var(--border-2);

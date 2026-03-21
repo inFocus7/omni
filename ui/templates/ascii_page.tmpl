@@ -59,7 +59,7 @@
                      data-name="{{$animName}}" data-size="{{.Size}}">
                     <div id="asc-{{$animName}}-{{.Size}}" class="ascii-scope">
                         {{paletteCSS $animName .Size .Palette}}
-                        <div class="widget-fill ascii-canvas"
+                        <div class="widget-fill ascii-canvas ascii-loading"
                              data-ascii-cols="{{.Cols}}"
                              data-ascii-rows="{{.Rows}}"
                              data-ascii-fps="{{.FPS}}"
@@ -210,36 +210,38 @@
                     <div class="ascii-editor-content">
                     <!-- Canvas wrapper: sizing context for absolutely-positioned tool strip + flyout -->
                     <div class="ascii-canvas-wrapper">
+                    <!-- Tool column: detached toolbar, sits to the left of the canvas -->
+                    <div class="ascii-tool-col" id="ascii-tools" style="display:none">
+                        <div class="ascii-tool-strip">
+                            <button class="ascii-tool-btn" id="ascii-tool-cursor" type="button" title="Select">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M5.5 3.5l13 8.5-6.5 1-3.5 6.5z"/></svg>
+                            </button>
+                            <button class="ascii-tool-btn" id="ascii-tool-pencil" type="button" title="Paint">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
+                            <button class="ascii-tool-btn" id="ascii-tool-onion" type="button" title="Onion skin">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
+                            <button class="ascii-tool-btn" id="ascii-tool-replace" type="button" title="Remap character (⌘H)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M4 8h11M12 5l3 3-3 3" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H9M12 19l-3-3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                        </div>
+                        <!-- Tool flyout: char + palette swatches, shown when pencil is active -->
+                        <div class="ascii-tool-flyout" id="ascii-tool-flyout" style="display:none">
+                            <span class="ascii-flyout-char" id="ascii-flyout-char" title="Click to edit character"> </span>
+                            <input type="text" id="ascii-tool-char" class="ascii-tool-char" maxlength="2" value=" " aria-label="Paint character">
+                            <div class="ascii-swatch-row" id="ascii-swatch-row"></div>
+                            <select id="ascii-tool-class" class="ascii-tool-class" aria-hidden="true" style="display:none">
+                                <option value="">(none)</option>
+                            </select>
+                        </div>
+                    </div>
                     <!-- Preview pane with grid overlay -->
                     <div class="ascii-preview-pane" id="ascii-preview-pane">
                         <p class="ascii-preview-empty">Add a blank frame to begin</p>
                         <div class="ascii-grid-overlay" id="ascii-grid-overlay" style="display:none"></div>
-                    </div>
-                    <!-- Tool strip: thin column on left edge, visible when frames are loaded -->
-                    <div class="ascii-tool-strip" id="ascii-tools" style="display:none">
-                        <button class="ascii-tool-btn" id="ascii-tool-cursor" type="button" title="Select">
-                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M5.5 3.5l13 8.5-6.5 1-3.5 6.5z"/></svg>
-                        </button>
-                        <button class="ascii-tool-btn" id="ascii-tool-pencil" type="button" title="Paint">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
-                        <button class="ascii-tool-btn" id="ascii-tool-onion" type="button" title="Onion skin">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ascii-tool-strip-sep" aria-hidden="true"></div>
-                        <button class="ascii-tool-btn" id="ascii-tool-replace" type="button" title="Remap character (⌘H)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true"><path d="M4 8h11M12 5l3 3-3 3" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H9M12 19l-3-3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                    </div>
-                    <!-- Tool flyout: char + palette swatches, shown when pencil is active -->
-                    <div class="ascii-tool-flyout" id="ascii-tool-flyout" style="display:none">
-                        <span class="ascii-flyout-char" id="ascii-flyout-char" title="Click to edit character"> </span>
-                        <input type="text" id="ascii-tool-char" class="ascii-tool-char" maxlength="2" value=" " aria-label="Paint character">
-                        <div class="ascii-swatch-row" id="ascii-swatch-row"></div>
-                        <select id="ascii-tool-class" class="ascii-tool-class" aria-hidden="true" style="display:none">
-                            <option value="">(none)</option>
-                        </select>
                     </div>
                     </div><!-- /.ascii-canvas-wrapper -->
 
@@ -251,7 +253,6 @@
                             <input type="text" id="ascii-replace-from" class="ascii-replace-char-input" maxlength="2" value="" aria-label="Find character" autocomplete="off" spellcheck="false">
                         </div>
                         <span class="ascii-replace-arrow" aria-hidden="true">→</span>
-                        <span class="ascii-replace-label" aria-hidden="true">→</span>
                         <div class="ascii-replace-char-wrap">
                             <span class="ascii-replace-char-preview empty" id="ascii-replace-to-preview" title="Click to edit (leave empty to erase)" aria-hidden="true">·</span>
                             <input type="text" id="ascii-replace-to" class="ascii-replace-char-input" maxlength="2" value="" aria-label="Replace with character (empty = space)" autocomplete="off" spellcheck="false">

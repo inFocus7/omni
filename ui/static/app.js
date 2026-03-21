@@ -521,15 +521,23 @@
       let loaded = false;
       // Eagerly load and render first frame as static preview
       loadFrames(framesUrl).then((data) => {
-        if (!data.frames || data.frames.length === 0) return;
+        if (!data.frames || data.frames.length === 0) {
+          container.classList.remove("ascii-loading");
+          return;
+        }
         const preview = new AsciiCanvasRenderer(container, data, fps);
         preview._renderFrame(0);
         // Don't start animation — just show frame 0
         container.addEventListener("click", () => {
-          if (loaded) return;
-          loaded = true;
-          preview.start();
+          if (!loaded) {
+            loaded = true;
+            preview.start();
+          } else {
+            preview.togglePause();
+          }
         });
+      }).catch(() => {
+        container.classList.remove("ascii-loading");
       });
     }
   }
