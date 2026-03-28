@@ -1,7 +1,7 @@
 CLUSTER_NAME ?=omni-dev
 OMNI_NAMESPACE ?=omni-system
 
-.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down db-shell db-dump test test-e2e
+.PHONY: run run-live docker-build docker-run kind-setup kind-forward security-scan check-deps minify-js helm-lint kind-down db-shell db-dump test test-e2e clean-local
 
 # ── Local development ─────────────────────────────────────────────────────────
 
@@ -86,3 +86,6 @@ check-deps:
 
 security-scan: docker-build check-deps
 	trivy image omni:latest
+
+clean-local:
+	rm -f $(LOCAL_DB)
