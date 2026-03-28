@@ -1982,7 +1982,7 @@
     }
 
     // ── Editor font scaling (DOM-based preview) ──────────
-    function setupAsciiCanvasFontScaling(el) {
+    function setupAsciiCanvasFontScaling(el, onResize) {
       const CHAR_W = 0.6;
       const CHAR_H = 1.0;
       let cachedCols = 0;
@@ -2008,6 +2008,7 @@
                 height / (cachedRows * CHAR_H),
               ),
             ) + "px";
+          if (onResize) onResize();
         }
       });
       ro.observe(el);
@@ -2043,32 +2044,39 @@
       const lines = frame.chars.split("\n");
       const result = [];
       let colorIdx = 0;
-      for (let r = 0; r < rows && r < lines.length; r++) {
-        const runes = Array.from(lines[r]);
+      for (let r = 0; r < rows; r++) {
+        const runes = r < lines.length ? Array.from(lines[r]) : [];
         let line = "";
         let i = 0;
-        while (i < runes.length && i < cols) {
-          const ci = frame.colors[colorIdx + i] || 0;
-          const cls = ci < localClassTable.length ? localClassTable[ci] : "";
-          let j = i + 1;
-          while (j < runes.length && j < cols) {
-            const nci = frame.colors[colorIdx + j] || 0;
-            const ncls = nci < localClassTable.length ? localClassTable[nci] : "";
-            if (ncls !== cls) break;
-            j++;
-          }
-          const chars = runes.slice(i, j).map((c) => {
-            if (c === "&") return "&amp;";
-            if (c === "<") return "&lt;";
-            if (c === ">") return "&gt;";
-            return c;
-          }).join("");
-          if (cls) {
-            line += `<span class="${escapeHtml(cls)}">${chars}</span>`;
+        while (i < cols) {
+          if (i < runes.length) {
+            const ci = frame.colors[colorIdx + i] || 0;
+            const cls = ci < localClassTable.length ? localClassTable[ci] : "";
+            let j = i + 1;
+            while (j < runes.length && j < cols) {
+              const nci = frame.colors[colorIdx + j] || 0;
+              const ncls = nci < localClassTable.length ? localClassTable[nci] : "";
+              if (ncls !== cls) break;
+              j++;
+            }
+            const chars = runes.slice(i, j).map((c) => {
+              if (c === "&") return "&amp;";
+              if (c === "<") return "&lt;";
+              if (c === ">") return "&gt;";
+              return c;
+            }).join("");
+            if (cls) {
+              line += `<span class="${escapeHtml(cls)}">${chars}</span>`;
+            } else {
+              line += chars;
+            }
+            i = j;
           } else {
-            line += chars;
+            // Pad row to exactly cols characters so the <pre> width is uniform
+            // and the grid overlay cells align correctly with character positions.
+            line += " ".repeat(cols - i);
+            i = cols;
           }
-          i = j;
         }
         result.push(line);
         colorIdx += runes.length;
@@ -2321,9 +2329,11 @@
         // Re-append grid overlay
         if (gridOverlay) previewPane.appendChild(gridOverlay);
 
-        // Font scaling ResizeObserver
+        // Font scaling ResizeObserver — re-aligns grid overlay after font is set
         if (previewRo) previewRo.disconnect();
-        previewRo = setupAsciiCanvasFontScaling(canvas);
+        previewRo = setupAsciiCanvasFontScaling(canvas, () => {
+          if (activeTool === "pencil") alignGridOverlay();
+        });
       } else {
         // Update style block + dataset
         const styleEl = document.createElement("style");
@@ -2341,6 +2351,7 @@
           const fw = width / (cols * CHAR_W);
           const fh = height / (rows * CHAR_H);
           canvas.style.fontSize = Math.floor(Math.min(fw, fh)) + "px";
+          if (activeTool === "pencil") alignGridOverlay();
         }
       }
 
@@ -2567,12 +2578,19 @@
     function alignGridOverlay() {
       if (!gridOverlay || !previewPane) return;
       const canvas = previewPane.querySelector(".ascii-canvas");
-      const pre = canvas?.querySelector(".ascii-frame:not(.ascii-onion)");
+      if (!canvas) return;
+      // Bail if font scaling hasn't fired yet — the onResize callback will
+      // re-invoke this function once canvas.style.fontSize is set.
+      if (!parseFloat(canvas.style.fontSize)) return;
+      const pre = canvas.querySelector(".ascii-frame:not(.ascii-onion)");
       if (!pre) return;
       const paneRect = previewPane.getBoundingClientRect();
       const preRect = pre.getBoundingClientRect();
-      gridOverlay.style.left = preRect.left - paneRect.left + "px";
-      gridOverlay.style.top = preRect.top - paneRect.top + "px";
+      const paneStyle = getComputedStyle(previewPane);
+      const borderLeft = parseFloat(paneStyle.borderLeftWidth) || 0;
+      const borderTop = parseFloat(paneStyle.borderTopWidth) || 0;
+      gridOverlay.style.left = preRect.left - paneRect.left - borderLeft + "px";
+      gridOverlay.style.top = preRect.top - paneRect.top - borderTop + "px";
       gridOverlay.style.width = preRect.width + "px";
       gridOverlay.style.height = preRect.height + "px";
     }
@@ -2603,9 +2621,20 @@
       requestAnimationFrame(alignGridOverlay);
     }
 
-    function paintCell(cellEl) {
-      const r = +cellEl.dataset.row;
-      const c = +cellEl.dataset.col;
+    // Convert a pointer event to (row, col) using floating-point division of the
+    // overlay rect. This avoids sub-pixel drift from CSS grid 1fr column rounding
+    // at small font sizes (e.g. 1.2px/cell at fontSize=2px).
+    function cellFromEvent(e) {
+      const rect = gridOverlay.getBoundingClientRect();
+      const cols = parseInt(colsInput?.value, 10) || 80;
+      const rows = parseInt(rowsInput?.value, 10) || 24;
+      const c = Math.floor((e.clientX - rect.left) / rect.width * cols);
+      const r = Math.floor((e.clientY - rect.top) / rect.height * rows);
+      if (c < 0 || c >= cols || r < 0 || r >= rows) return null;
+      return { r, c };
+    }
+
+    function paintCell(r, c) {
       const cols = parseInt(colsInput?.value, 10) || 80;
       const ch = Array.from(toolChar?.value || " ")[0] || " ";
       const cls = toolClass?.value || "";
@@ -2632,14 +2661,12 @@
 
     if (gridOverlay) {
       gridOverlay.addEventListener("mousedown", (e) => {
-        const cell = e.target.closest(".ascii-grid-cell");
+        const cell = cellFromEvent(e);
         if (!cell) return;
         if (e.button === 2 || e.altKey) {
           // Eyedropper
-          const r = +cell.dataset.row,
-            c = +cell.dataset.col;
           const cols = parseInt(colsInput?.value, 10) || 80;
-          const picked = getCell(localFrames[currentFrameIndex], cols, r, c);
+          const picked = getCell(localFrames[currentFrameIndex], cols, cell.r, cell.c);
           if (picked) {
             if (toolChar) toolChar.value = picked.ch === " " ? " " : picked.ch;
             if (asciiFlyoutChar)
@@ -2650,12 +2677,12 @@
           return;
         }
         isPainting = true;
-        paintCell(cell);
+        paintCell(cell.r, cell.c);
       });
       gridOverlay.addEventListener("mousemove", (e) => {
         if (!isPainting) return;
-        const cell = e.target.closest(".ascii-grid-cell");
-        if (cell) paintCell(cell);
+        const cell = cellFromEvent(e);
+        if (cell) paintCell(cell.r, cell.c);
       });
       gridOverlay.addEventListener("contextmenu", (e) => e.preventDefault());
     }
