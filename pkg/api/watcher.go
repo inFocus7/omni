@@ -51,7 +51,7 @@ func (w *Watcher) Start(ctx context.Context) {
 				}
 				// Build wire-format JSON and cache it (gzip-compressed).
 				if wireGz, err := buildWireFormatGz(ev.Variant); err == nil {
-					w.cache.Store(ev.Variant.Name+"/"+ev.Variant.Size, wireGz)
+					w.cache.Store(ev.Variant.ID+"/"+ev.Variant.Size, wireGz)
 				} else {
 					w.logger.Warn().Err(err).Str("animation", ev.Name).Msg("failed to build wire format for cache")
 					w.cache.Delete(ev.Variant.Name + "/" + ev.Variant.Size)

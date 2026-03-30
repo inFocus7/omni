@@ -36,6 +36,7 @@ func GzipDecompress(data []byte) ([]byte, error) {
 // separate frames files rather than inlining the frame data.
 type PackMeta struct {
 	Name     string            `json:"name"`
+	Version  string            `json:"version,omitempty"`
 	Palette  map[string]string `json:"palette,omitempty"`
 	Variants []VariantFileMeta `json:"variants"`
 }

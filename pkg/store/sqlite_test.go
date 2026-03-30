@@ -71,14 +71,18 @@ func TestFramesStoredCompressed(t *testing.T) {
 	frames := []string{"<span>frame0</span>", "<span>frame1</span>"}
 	v := makeVariant(t, frames)
 
-	if err := st.Put(ctx, v); err != nil {
+	animID, err := st.Put(ctx, v)
+	if err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
 	// Blob in DB must start with gzip magic bytes 0x1f 0x8b.
 	var blob []byte
-	if err := st.db.QueryRowContext(ctx,
-		"SELECT frames FROM animation_frames WHERE name = 'test' AND size = '1x1'",
+	if err := st.db.QueryRowContext(ctx, `
+		SELECT sv.frames FROM size_variants sv
+		JOIN animation_versions av ON av.id = sv.version_id
+		JOIN animations a ON a.id = av.animation_id
+		WHERE a.name = 'test' AND sv.size = '1x1'`,
 	).Scan(&blob); err != nil {
 		t.Fatalf("query blob: %v", err)
 	}
@@ -88,8 +92,11 @@ func TestFramesStoredCompressed(t *testing.T) {
 
 	// first_frame column must be non-empty (generated from ICG frame[0]).
 	var dbFirstFrame string
-	if err := st.db.QueryRowContext(ctx,
-		"SELECT first_frame FROM animation_frames WHERE name = 'test' AND size = '1x1'",
+	if err := st.db.QueryRowContext(ctx, `
+		SELECT sv.first_frame FROM size_variants sv
+		JOIN animation_versions av ON av.id = sv.version_id
+		JOIN animations a ON a.id = av.animation_id
+		WHERE a.name = 'test' AND sv.size = '1x1'`,
 	).Scan(&dbFirstFrame); err != nil {
 		t.Fatalf("query first_frame: %v", err)
 	}
@@ -98,7 +105,7 @@ func TestFramesStoredCompressed(t *testing.T) {
 	}
 
 	// Get returns FirstFrame and FramesGzip intact — no decompression.
-	variants, err := st.Get(ctx, "test")
+	variants, err := st.Get(ctx, animID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -143,7 +150,7 @@ func TestEventCarriesFirstFrameAndGzip(t *testing.T) {
 	frames := []string{"<span>frame0</span>"}
 	v := makeVariant(t, frames)
 
-	if err := st.Put(ctx, v); err != nil {
+	if _, err := st.Put(ctx, v); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -181,7 +188,7 @@ func TestListSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompressICG: %v", err)
 	}
-	if err := st.Put(ctx, AnimationVariant{
+	if _, err := st.Put(ctx, AnimationVariant{
 		Name:       "demo",
 		Size:       "1x1",
 		Cols:       80,
@@ -198,7 +205,7 @@ func TestListSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompressICG 2x1: %v", err)
 	}
-	if err := st.Put(ctx, AnimationVariant{
+	if _, err := st.Put(ctx, AnimationVariant{
 		Name:       "demo",
 		Size:       "2x1",
 		Cols:       160,
@@ -252,7 +259,7 @@ func TestPutRejectsEmptyFramesGzip(t *testing.T) {
 	}
 	defer st.Close()
 
-	err = st.Put(context.Background(), AnimationVariant{
+	_, err = st.Put(context.Background(), AnimationVariant{
 		Name: "test",
 		Size: "1x1",
 	})
@@ -296,7 +303,7 @@ func TestPutRejectsInvalidPalette(t *testing.T) {
 				FirstFrame: first,
 				FramesGzip: gz,
 			}
-			putErr := st.Put(ctx, v)
+			_, putErr := st.Put(ctx, v)
 			if putErr == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -325,7 +332,7 @@ func TestListSummariesPaged(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CompressICG %s: %v", name, err)
 		}
-		if err := st.Put(ctx, AnimationVariant{
+		if _, err := st.Put(ctx, AnimationVariant{
 			Name: name, Size: "1x1",
 			Cols: 80, Rows: 24, FPS: 12,
 			FirstFrame: first, FramesGzip: gz,
@@ -339,7 +346,7 @@ func TestListSummariesPaged(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CompressICG 2x1: %v", err)
 			}
-			if err := st.Put(ctx, AnimationVariant{
+			if _, err := st.Put(ctx, AnimationVariant{
 				Name: name, Size: "2x1",
 				Cols: 160, Rows: 24, FPS: 12,
 				FirstFrame: first2, FramesGzip: gz2,
@@ -435,7 +442,7 @@ func TestListDistinctSizes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CompressICG: %v", err)
 		}
-		if err := st.Put(ctx, AnimationVariant{
+		if _, err := st.Put(ctx, AnimationVariant{
 			Name: name, Size: size,
 			Cols: 80, Rows: 24, FPS: 12,
 			FirstFrame: first, FramesGzip: gz,

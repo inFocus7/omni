@@ -44,9 +44,12 @@ type Animation struct {
 // It holds all size variants so Definition() returns every available size
 // and Render() dispatches to the correct variant by sizeName.
 type Widget struct {
-	name     string
-	variants map[string]Animation // size → Animation
-	gz       map[string][]byte    // size → gzip-compressed frames blob
+	name        string // UUID — used for widget ID
+	displayName string // human-readable name
+	packName    string // pack label for grouping in picker
+	packAuthor  string // pack author shown as subtitle
+	variants    map[string]Animation // size → Animation
+	gz          map[string][]byte    // size → gzip-compressed frames blob
 }
 
 // AnimationName returns the animation name.
@@ -78,11 +81,17 @@ func (w *Widget) Definition() widgets.WidgetDef {
 		sizes = append(sizes, parseSize(a.Size))
 	}
 	sort.Slice(sizes, func(i, j int) bool { return sizes[i].Name < sizes[j].Name })
+	name := w.displayName
+	if name == "" {
+		name = w.name
+	}
 	return widgets.WidgetDef{
 		ID:          "ascii-" + w.name,
 		PluginID:    "ascii",
-		Name:        w.name,
+		Name:        name,
 		Description: "ASCII animation",
+		Group:       w.packName,
+		GroupAuthor: w.packAuthor,
 		Sizes:       sizes,
 	}
 }
@@ -145,20 +154,29 @@ func parseSize(s string) widgets.SizeOption {
 }
 
 // NewWidgetFromVariants creates a Widget from a slice of store.AnimationVariants.
-// All variants must share the same Name. The resulting widget exposes every
+// All variants must share the same animation. The resulting widget exposes every
 // size in Definition().Sizes and dispatches Render() to the correct variant.
 func NewWidgetFromVariants(variants []store.AnimationVariant) *Widget {
 	if len(variants) == 0 {
 		return nil
 	}
+	id := variants[0].ID
+	if id == "" {
+		id = variants[0].Name
+	}
 	w := &Widget{
-		name:     variants[0].Name,
-		variants: make(map[string]Animation, len(variants)),
-		gz:       make(map[string][]byte, len(variants)),
+		name:        id,
+		displayName: variants[0].Name,
+		variants:    make(map[string]Animation, len(variants)),
+		gz:          make(map[string][]byte, len(variants)),
 	}
 	for _, v := range variants {
+		varID := v.ID
+		if varID == "" {
+			varID = v.Name
+		}
 		w.variants[v.Size] = Animation{
-			Name:       v.Name,
+			Name:       varID,
 			Size:       v.Size,
 			Cols:       v.Cols,
 			Rows:       v.Rows,
@@ -179,17 +197,44 @@ func NewWidgetFromVariant(v store.AnimationVariant) *Widget {
 // LoadFromStore loads all animations from s and returns one Widget per animation
 // containing all its size variants.
 func LoadFromStore(ctx context.Context, s store.Store) ([]*Widget, error) {
-	metas, err := s.List(ctx)
+	anims, err := s.ListAnimationsV2(ctx, store.AnimationFilters{})
 	if err != nil {
 		return nil, fmt.Errorf("list animations: %w", err)
 	}
 	var result []*Widget
-	for _, meta := range metas {
-		variants, err := s.Get(ctx, meta.Name)
+	for _, anim := range anims {
+		latestVer, err := s.GetLatestVersion(ctx, anim.ID)
 		if err != nil {
 			continue
 		}
+		svs, err := s.ListSizeVariants(ctx, latestVer.ID)
+		if err != nil {
+			continue
+		}
+		variants := make([]store.AnimationVariant, 0, len(svs))
+		for _, sv := range svs {
+			full, err := s.GetSizeVariantByVersionID(ctx, latestVer.ID, sv.Size)
+			if err != nil {
+				continue
+			}
+			variants = append(variants, store.AnimationVariant{
+				ID:         anim.ID,
+				Name:       anim.Name,
+				Source:     anim.Source,
+				Size:       sv.Size,
+				Cols:       sv.Cols,
+				Rows:       sv.Rows,
+				FPS:        sv.FPS,
+				Palette:    full.Palette,
+				FirstFrame: full.FirstFrame,
+				FramesGzip: full.FramesGzip,
+			})
+		}
 		if w := NewWidgetFromVariants(variants); w != nil {
+			w.packName = anim.PackName
+			if anim.PackID != "" {
+				w.packAuthor = anim.Author
+			}
 			result = append(result, w)
 		}
 	}

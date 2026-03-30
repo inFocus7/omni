@@ -49,21 +49,25 @@
             </div>
 
             {{if .Animations}}
+            {{range .Groups}}
+            {{if .PackName}}<div class="ascii-pack-header"><span class="ascii-pack-label">{{.PackName}}{{if .Author}}<span class="ascii-pack-author">{{.Author}}</span>{{end}}</span></div>{{end}}
             <div class="widget-grid ascii-gallery-grid">
-                {{range .Animations}}
+                {{range .Anims}}
+                {{$animID := .ID}}
                 {{$animName := .Name}}
+                {{$animAuthor := .Author}}
                 {{$isRemote := .Source}}
                 {{range .Variants}}
                 <div class="widget ascii-gallery-item"
                      style="grid-column: span {{sizeW .Size}}; grid-row: span {{sizeH .Size}}"
-                     data-name="{{$animName}}" data-size="{{.Size}}">
-                    <div id="asc-{{$animName}}-{{.Size}}" class="ascii-scope">
-                        {{paletteCSS $animName .Size .Palette}}
+                     data-name="{{$animID}}" data-size="{{.Size}}">
+                    <div id="asc-{{$animID}}-{{.Size}}" class="ascii-scope">
+                        {{paletteCSS $animID .Size .Palette}}
                         <div class="widget-fill ascii-canvas ascii-loading"
                              data-ascii-cols="{{.Cols}}"
                              data-ascii-rows="{{.Rows}}"
                              data-ascii-fps="{{.FPS}}"
-                             data-ascii-frames-url="/api/ascii/frames/{{$animName}}?size={{.Size}}">
+                             data-ascii-frames-url="/api/ascii/frames/{{$animID}}?size={{.Size}}">
                             <div class="ascii-pause-indicator" hidden>
                                 <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
                                     <rect x="6" y="4" width="4" height="16"/>
@@ -77,11 +81,12 @@
                             <span class="ascii-gallery-name">{{$animName}}</span>
                             <span class="ascii-gallery-size">{{.Size}} · {{.Cols}}×{{.Rows}}</span>
                             {{if $isRemote}}<span class="ascii-card-badge">remote</span>{{end}}
+                            {{if and $animAuthor (ne $animAuthor "user")}}<span class="ascii-card-badge">{{$animAuthor}}</span>{{end}}
                         </div>
                         {{if not $isRemote}}
                         <div class="ascii-gallery-actions">
-                            <button class="ascii-edit-variant-btn ascii-gallery-btn" data-name="{{$animName}}" data-size="{{.Size}}">edit</button>
-                            <button class="ascii-delete-variant-btn ascii-gallery-btn" data-name="{{$animName}}" data-size="{{.Size}}">delete</button>
+                            <button class="ascii-edit-variant-btn ascii-gallery-btn" data-name="{{$animID}}" data-display-name="{{$animName}}" data-size="{{.Size}}">edit</button>
+                            <button class="ascii-delete-variant-btn ascii-gallery-btn" data-name="{{$animID}}" data-display-name="{{$animName}}" data-size="{{.Size}}">delete</button>
                         </div>
                         {{end}}
                     </div>
@@ -89,6 +94,7 @@
                 {{end}}
                 {{end}}
             </div>
+            {{end}}
 
             {{if gt .TotalPages 1}}
             <div class="table-pagination">

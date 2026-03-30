@@ -20,6 +20,8 @@ type WidgetDef struct {
 	PluginID    string
 	Name        string
 	Description string
+	Group       string // optional grouping label (e.g. pack name)
+	GroupAuthor string // optional author shown as group subtitle
 	Sizes       []SizeOption
 }
 

@@ -47,6 +47,14 @@ func (h *AsciiAPI) RegisterRoutes(r *gin.Engine) {
 	r.POST("/api/ascii/replace-char", h.ReplaceChar)
 	r.POST("/api/ascii/import", h.Import)
 	r.POST("/api/ascii/export", h.Export)
+	r.GET("/api/ascii/packs", h.ListPacks)
+	r.GET("/api/ascii/packs/:id", h.GetPack)
+	r.POST("/api/ascii/packs", h.CreatePack)
+	r.PUT("/api/ascii/packs/:id", h.UpdatePack)
+	r.DELETE("/api/ascii/packs/:id", h.DeletePack)
+	r.GET("/api/ascii/authors", h.ListAuthors)
+	r.GET("/api/ascii/tags", h.ListTags)
+	r.GET("/api/ascii/animations/:name/versions", h.ListVersions)
 }
 
 // ImportResult is the response body for POST /api/ascii/import.
@@ -58,6 +66,7 @@ type ImportResult struct {
 
 // ImportedAnimation describes a successfully imported animation.
 type ImportedAnimation struct {
+	ID    string   `json:"id"`
 	Name  string   `json:"name"`
 	Sizes []string `json:"sizes"`
 }
@@ -166,7 +175,7 @@ func (h *AsciiAPI) Create(c *gin.Context) {
 	}
 	req.AnimationVariant.FirstFrame = first
 	req.AnimationVariant.FramesGzip = gz
-	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
+	if _, err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrInvalidInput) {
 			status = http.StatusBadRequest
@@ -177,17 +186,15 @@ func (h *AsciiAPI) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "name": req.Name})
 }
 
-// Update replaces a variant (name in URL must match body).
+// Update replaces a variant. The URL param is the animation UUID.
 func (h *AsciiAPI) Update(c *gin.Context) {
-	name := c.Param("name")
+	id := c.Param("name")
 	var req animationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
-	if req.Name == "" {
-		req.Name = name
-	}
+	req.AnimationVariant.ID = id
 	icg, err := req.toICG()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -203,10 +210,12 @@ func (h *AsciiAPI) Update(c *gin.Context) {
 	}
 	req.AnimationVariant.FirstFrame = first
 	req.AnimationVariant.FramesGzip = gz
-	if err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
+	if _, err := h.putAndRegister(c.Request.Context(), req.AnimationVariant); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrInvalidInput) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, store.ErrReadOnly) {
+			status = http.StatusForbidden
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
@@ -325,8 +334,10 @@ func (h *AsciiAPI) Delete(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Delete(c.Request.Context(), name); err != nil {
 		status := http.StatusInternalServerError
-		if err == store.ErrNotFound {
+		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, store.ErrReadOnly) {
+			status = http.StatusForbidden
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
@@ -349,8 +360,10 @@ func (h *AsciiAPI) DeleteVariant(c *gin.Context) {
 	size := c.Param("size")
 	if err := h.store.DeleteVariant(c.Request.Context(), name, size); err != nil {
 		status := http.StatusInternalServerError
-		if err == store.ErrNotFound {
+		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, store.ErrReadOnly) {
+			status = http.StatusForbidden
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
@@ -446,7 +459,7 @@ func (h *AsciiAPI) Import(c *gin.Context) {
 	if isPack {
 		result = h.importPack(ctx, pathMap, overwrite)
 	} else {
-		result = h.importSingle(ctx, pathMap, overwrite)
+		result = h.importSingle(ctx, pathMap, overwrite, "")
 	}
 
 	if !overwrite && len(result.Conflicts) > 0 {
@@ -457,8 +470,8 @@ func (h *AsciiAPI) Import(c *gin.Context) {
 }
 
 // importSingle imports a single animation from a path map.
-// The paths may be at root level ("meta.json") or one folder deep ("animname/meta.json").
-func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, overwrite bool) ImportResult {
+// packID, if non-empty, groups the animation under that pack.
+func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, overwrite bool, packID string) ImportResult {
 	// Find meta.json.
 	var metaKey string
 	var metaData []byte
@@ -480,7 +493,15 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 
 	// Collision check.
 	if !overwrite {
-		if _, err := h.store.Get(ctx, meta.Name); err == nil {
+		var exists bool
+		if packID != "" {
+			_, err := h.store.GetAnimationInPack(ctx, packID, meta.Name)
+			exists = err == nil
+		} else {
+			_, err := h.store.GetAnimationByName(ctx, "user", meta.Name)
+			exists = err == nil
+		}
+		if exists {
 			return ImportResult{Conflicts: []string{meta.Name}}
 		}
 	}
@@ -494,6 +515,7 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 	}
 
 	var sizes []string
+	var animID string
 	for _, variant := range meta.Variants {
 		// Find frames file: look for key matching prefix+variant.FramesFile or just the basename.
 		framesKey := prefix + variant.FramesFile
@@ -562,7 +584,8 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 
 		v := store.AnimationVariant{
 			Name:       meta.Name,
-			Source:     "", // always local on import
+			PackID:     packID,
+			Source:     "",
 			Size:       variant.Size,
 			Cols:       variant.Cols,
 			Rows:       variant.Rows,
@@ -571,7 +594,8 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 			FirstFrame: firstFrame,
 			FramesGzip: gz,
 		}
-		if err := h.putAndRegister(ctx, v); err != nil {
+		id, err := h.putAndRegister(ctx, v)
+		if err != nil {
 			return ImportResult{
 				Skipped: []SkippedAnimation{{
 					Name:   meta.Name,
@@ -579,11 +603,12 @@ func (h *AsciiAPI) importSingle(ctx context.Context, paths map[string][]byte, ov
 				}},
 			}
 		}
+		animID = id
 		sizes = append(sizes, variant.Size)
 	}
 
 	return ImportResult{
-		Imported: []ImportedAnimation{{Name: meta.Name, Sizes: sizes}},
+		Imported: []ImportedAnimation{{ID: animID, Name: meta.Name, Sizes: sizes}},
 	}
 }
 
@@ -608,6 +633,42 @@ func (h *AsciiAPI) importPack(ctx context.Context, paths map[string][]byte, over
 		return ImportResult{Skipped: []SkippedAnimation{{Name: "?", Reason: err.Error()}}}
 	}
 
+	// Resolve author: use pack.Author or fall back to "user".
+	author := pack.Author
+	if author == "" {
+		author = "user"
+	}
+
+	// Find or create the pack row. Never overwrite a remote pack.
+	packID := ""
+	existing, _ := h.store.ListPacks(ctx, author)
+	for _, ep := range existing {
+		if ep.Name == pack.Name {
+			if ep.Source != "" {
+				return ImportResult{Skipped: []SkippedAnimation{{
+					Name:   pack.Name,
+					Reason: "pack belongs to a remote source and cannot be overwritten",
+				}}}
+			}
+			packID = ep.ID
+			break
+		}
+	}
+	if packID == "" {
+		p := store.Pack{
+			ID:          store.NewUUID(),
+			Author:      author,
+			Name:         pack.Name,
+			Description: pack.Description,
+			License:     pack.License,
+			Tags:        []string{},
+		}
+		if err := h.store.PutPack(ctx, p); err != nil {
+			return ImportResult{Skipped: []SkippedAnimation{{Name: pack.Name, Reason: "create pack: " + err.Error()}}}
+		}
+		packID = p.ID
+	}
+
 	// The pack root is the directory containing pack.json (e.g. "my-pack/").
 	packPrefix := ""
 	if dir := path.Dir(packKey); dir != "." {
@@ -616,12 +677,10 @@ func (h *AsciiAPI) importPack(ctx context.Context, paths map[string][]byte, over
 
 	var result ImportResult
 	for _, animName := range pack.Animations {
-		// Filter paths to those starting with packPrefix+animName+"/".
 		animPrefix := packPrefix + animName + "/"
 		subPaths := map[string][]byte{}
 		for k, v := range paths {
 			if strings.HasPrefix(k, animPrefix) {
-				// Strip the animPrefix so importSingle sees "meta.json", "frames-1x1.json", etc.
 				rel := strings.TrimPrefix(k, animPrefix)
 				subPaths[rel] = v
 			}
@@ -635,7 +694,7 @@ func (h *AsciiAPI) importPack(ctx context.Context, paths map[string][]byte, over
 			continue
 		}
 
-		sub := h.importSingle(ctx, subPaths, overwrite)
+		sub := h.importSingle(ctx, subPaths, overwrite, packID)
 		result.Imported = append(result.Imported, sub.Imported...)
 		result.Skipped = append(result.Skipped, sub.Skipped...)
 		result.Conflicts = append(result.Conflicts, sub.Conflicts...)
@@ -661,28 +720,33 @@ func (h *AsciiAPI) Export(c *gin.Context) {
 
 	// Fetch all animations and validate they are local.
 	type animData struct {
-		name     string
+		name     string // slug, used for zip paths
 		variants []store.AnimationVariant
 	}
 	anims := make([]animData, 0, len(req.Animations))
 
-	for _, name := range req.Animations {
-		variants, err := h.store.Get(ctx, name)
+	for _, id := range req.Animations {
+		anim, err := h.store.GetAnimationByID(ctx, id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("animation %q not found", name)})
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("animation %q not found", id)})
 			} else {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			}
 			return
 		}
+		variants, err := h.store.Get(ctx, id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		for _, v := range variants {
 			if v.Source != "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is a remote animation and cannot be exported", name)})
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is a remote animation and cannot be exported", anim.Name)})
 				return
 			}
 		}
-		anims = append(anims, animData{name: name, variants: variants})
+		anims = append(anims, animData{name: anim.Name, variants: variants})
 	}
 
 	// Build zip in memory.
@@ -810,16 +874,115 @@ func writeZipFile(zw *zip.Writer, zipPath string, data []byte) error {
 }
 
 // putAndRegister stores a variant and eagerly updates the registry and cache.
-// The cache entry is invalidated (not eagerly written) so the Watcher goroutine
-// repopulates it with the sanitized frames broadcast via the store event.
-func (h *AsciiAPI) putAndRegister(ctx context.Context, variant store.AnimationVariant) error {
-	if err := h.store.Put(ctx, variant); err != nil {
-		return err
+// Returns the animation UUID.
+func (h *AsciiAPI) putAndRegister(ctx context.Context, variant store.AnimationVariant) (string, error) {
+	id, err := h.store.Put(ctx, variant)
+	if err != nil {
+		return "", err
 	}
-	// Re-register all variants so Definition().Sizes stays complete.
-	if all, err := h.store.Get(ctx, variant.Name); err == nil && len(all) > 0 {
+	if all, err := h.store.Get(ctx, id); err == nil && len(all) > 0 {
 		h.registry.Register(asciiplugin.NewWidgetFromVariants(all))
+		h.cache.Delete(id + "/" + variant.Size)
 	}
-	h.cache.Delete(variant.Name + "/" + variant.Size)
-	return nil
+	return id, nil
+}
+
+// ListPacks returns all packs, optionally filtered by author.
+func (h *AsciiAPI) ListPacks(c *gin.Context) {
+	packs, err := h.store.ListPacks(c.Request.Context(), c.Query("author"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, packs)
+}
+
+// GetPack returns a single pack by ID.
+func (h *AsciiAPI) GetPack(c *gin.Context) {
+	p, err := h.store.GetPack(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if err == store.ErrNotFound {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+// CreatePack creates a new pack.
+func (h *AsciiAPI) CreatePack(c *gin.Context) {
+	var p store.Pack
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	if p.Author == "" || p.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "author and slug are required"})
+		return
+	}
+	if err := h.store.PutPack(c.Request.Context(), p); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"ok": true})
+}
+
+// UpdatePack updates an existing pack.
+func (h *AsciiAPI) UpdatePack(c *gin.Context) {
+	var p store.Pack
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	p.ID = c.Param("id")
+	if err := h.store.PutPack(c.Request.Context(), p); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// DeletePack removes a pack by ID.
+func (h *AsciiAPI) DeletePack(c *gin.Context) {
+	if err := h.store.DeletePack(c.Request.Context(), c.Param("id")); err != nil {
+		status := http.StatusInternalServerError
+		if err == store.ErrNotFound {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ListAuthors returns all distinct animation authors.
+func (h *AsciiAPI) ListAuthors(c *gin.Context) {
+	authors, err := h.store.ListAuthors(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, authors)
+}
+
+// ListTags returns all distinct animation tags.
+func (h *AsciiAPI) ListTags(c *gin.Context) {
+	tags, err := h.store.ListDistinctTagsV2(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, tags)
+}
+
+// ListVersions returns all versions for an animation.
+func (h *AsciiAPI) ListVersions(c *gin.Context) {
+	versions, err := h.store.ListVersions(c.Request.Context(), c.Param("name"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, versions)
 }

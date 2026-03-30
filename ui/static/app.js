@@ -1255,9 +1255,24 @@
       if (pickerTitle)
         pickerTitle.textContent =
           PLUGIN_META[selectedPlugin]?.name || selectedPlugin;
-      listEl.innerHTML = widgets
-        .map(
-          (w) => `
+
+      // Group by w.group; ungrouped (empty string) listed first
+      const groupOrder = [];
+      const groupMap = {};
+      for (const w of widgets) {
+        const key = w.group || "";
+        if (!groupMap[key]) {
+          groupMap[key] = [];
+          if (key === "") {
+            groupOrder.unshift(key);
+          } else {
+            groupOrder.push(key);
+          }
+        }
+        groupMap[key].push(w);
+      }
+
+      const itemHTML = (w) => `
         <div class="widget-picker-item" data-widget-id="${w.id}">
           <div>
             <div class="widget-picker-item-name">${w.name}</div>
@@ -1266,9 +1281,28 @@
           <div class="widget-picker-item-sizes">
             ${w.sizes.map((s) => `<span class="widget-picker-size-dot" style="width:${s.w * 12}px;height:${s.h * 12}px"></span>`).join("")}
           </div>
-        </div>
-      `,
-        )
+        </div>`;
+
+      // Collect per-group author (first widget in group carries it)
+      const groupAuthor = {};
+      for (const w of widgets) {
+        const key = w.group || "";
+        if (key && !groupAuthor[key] && w.group_author) {
+          groupAuthor[key] = w.group_author;
+        }
+      }
+
+      listEl.innerHTML = groupOrder
+        .map((key) => {
+          let header = "";
+          if (key) {
+            const author = groupAuthor[key]
+              ? `<span class="widget-picker-group-author">${groupAuthor[key]}</span>`
+              : "";
+            header = `<div class="widget-picker-group-header">${key}${author}</div>`;
+          }
+          return header + groupMap[key].map(itemHTML).join("");
+        })
         .join("");
 
       listEl
@@ -3213,9 +3247,9 @@
       if (asciiToolFlyout) asciiToolFlyout.style.display = "none";
     }
 
-    function openModal(mode, animName, variantSize) {
+    function openModal(mode, animId, variantSize, displayName) {
       modalMode = mode;
-      modalName = animName || "";
+      modalName = animId || "";
       if (isPlaying) togglePlay();
       if (playRafId) cancelAnimationFrame(playRafId);
       if (previewRo) {
@@ -3239,9 +3273,9 @@
         localFrames = [makeBlankICGFrame(80, 24)];
         framesLoaded();
       } else {
-        if (titleEl) titleEl.textContent = `Edit: ${animName}`;
+        if (titleEl) titleEl.textContent = `Edit: ${displayName || animId}`;
         if (nameInput) {
-          nameInput.value = animName;
+          nameInput.value = displayName || animId;
           nameInput.disabled = true;
         }
         if (sizeInput) sizeInput.value = variantSize || "";
@@ -3251,7 +3285,7 @@
 
         let metaPalette = {}; // palette from variant metadata (class->color)
         const metaP = fetch(
-          `/api/ascii/animations/${encodeURIComponent(animName)}`,
+          `/api/ascii/animations/${encodeURIComponent(animId)}`,
         )
           .then((r) => r.json())
           .then((variants) => {
@@ -3276,7 +3310,7 @@
           // Wait for metaP first so we have the palette for reverse-mapping
           metaP.then(() => {
             fetch(
-              `/api/ascii/frames/${encodeURIComponent(animName)}?size=${encodeURIComponent(variantSize)}`,
+              `/api/ascii/frames/${encodeURIComponent(animId)}?size=${encodeURIComponent(variantSize)}`,
             )
               .then((r) => r.json())
               .then((data) => {
@@ -3317,7 +3351,7 @@
 
     document.querySelectorAll(".ascii-edit-variant-btn").forEach((btn) => {
       btn.addEventListener("click", () =>
-        openModal("edit", btn.dataset.name, btn.dataset.size),
+        openModal("edit", btn.dataset.name, btn.dataset.size, btn.dataset.displayName),
       );
     });
 

@@ -301,6 +301,9 @@ func main() {
 			return
 		}
 
+		authors, _ := st.ListAuthors(c.Request.Context())
+		tags, _ := st.ListDistinctTagsV2(c.Request.Context())
+
 		totalPages := 1
 		if pg.Total > 0 {
 			totalPages = (pg.Total + pageSize - 1) / pageSize
@@ -313,7 +316,29 @@ func main() {
 
 		pages := buildPageInfos(page, totalPages)
 
+		type animGroup struct {
+			PackID   string
+			PackName string
+			Author   string
+			Anims    []store.AnimationSummary
+		}
+		var groups []animGroup
+		packIndex := map[string]int{}
+		for _, a := range pg.Animations {
+			key := a.PackID
+			if _, ok := packIndex[key]; !ok {
+				packIndex[key] = len(groups)
+				author := ""
+				if key != "" {
+					author = a.Author
+				}
+				groups = append(groups, animGroup{PackID: key, PackName: a.PackName, Author: author})
+			}
+			groups[packIndex[key]].Anims = append(groups[packIndex[key]].Anims, a)
+		}
+
 		data := gin.H{
+			"Groups":     groups,
 			"Animations": pg.Animations,
 			"Total":      pg.Total,
 			"Page":       page,
@@ -329,6 +354,8 @@ func main() {
 			"Pages":      pages,
 			"Start":      start,
 			"End":        end,
+			"Authors":    authors,
+			"Tags":       tags,
 		}
 
 		if err := render(c, "ascii_page.tmpl", data); err != nil {
@@ -479,6 +506,8 @@ func main() {
 			PluginID    string     `json:"plugin_id"`
 			Name        string     `json:"name"`
 			Description string     `json:"description"`
+			Group       string     `json:"group,omitempty"`
+			GroupAuthor string     `json:"group_author,omitempty"`
 			Sizes       []sizeJSON `json:"sizes"`
 		}
 
@@ -493,6 +522,8 @@ func main() {
 				PluginID:    d.PluginID,
 				Name:        d.Name,
 				Description: d.Description,
+				Group:       d.Group,
+				GroupAuthor: d.GroupAuthor,
 				Sizes:       sizes,
 			})
 		}

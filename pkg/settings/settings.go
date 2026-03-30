@@ -39,6 +39,7 @@ type DashboardWidget struct {
 	ID       string `json:"id"`
 	SizeName string `json:"size_name"`
 	Position int    `json:"position"`
+	Version  string `json:"version,omitempty"`
 }
 
 func configPath() (string, error) {

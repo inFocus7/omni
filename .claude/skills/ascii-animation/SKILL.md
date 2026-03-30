@@ -71,6 +71,7 @@ Present the fit suggestions (keep-rows, keep-cols, balanced) and let the user ch
 ```json
 {
   "name": "my-animation",
+  "version": "1.0.0",
   "palette": { "colorClass": "#rrggbb" },
   "variants": [
     {
@@ -83,12 +84,14 @@ Present the fit suggestions (keep-rows, keep-cols, balanced) and let the user ch
   ]
 }
 ```
-- `name` — required, non-empty
+- `name` — required, non-empty; becomes the slug within the author's namespace
+- `version` — optional; defaults to `1.0.0` on import. Semver string.
 - `palette` — optional; omit entirely if monochrome
 - `variants` — required, at least 1 entry
 - Each variant: `size`, `cols`, `rows`, `fps`, `frames_file` all required
 - Size format: `WxH` (e.g. `1x1`, `2x2`)
 - `frames_file` convention: `frames-<size>.json`
+- On import, OMNI assigns a UUID to each animation. The UUID is used internally as the widget ID (`ascii-{uuid}`). The `name` field is stored as the slug for display.
 
 ### frames-\<size\>.json (ICG format)
 ```json

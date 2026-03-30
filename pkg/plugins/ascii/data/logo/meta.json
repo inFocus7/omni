@@ -1,5 +1,6 @@
 {
   "name": "logo",
+  "version": "1.0.0",
   "palette": {
     "ring": "rgb(237,237,239)",
     "spark": "rgb(230,51,41)"

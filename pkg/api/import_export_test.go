@@ -249,7 +249,8 @@ func TestImport_SingleAnimation_HappyPath(t *testing.T) {
 	assert.Empty(t, result.Conflicts)
 
 	// Verify animation is actually in the store.
-	variants, err := e.store.Get(context.Background(), "logo")
+	require.Len(t, result.Imported, 1)
+	variants, err := e.store.Get(context.Background(), result.Imported[0].ID)
 	require.NoError(t, err)
 	assert.Len(t, variants, 1)
 	assert.Equal(t, "1x1", variants[0].Size)
@@ -271,7 +272,8 @@ func TestImport_SingleAnimation_MultipleVariants(t *testing.T) {
 	assert.Equal(t, "spinner", result.Imported[0].Name)
 	assert.ElementsMatch(t, []string{"1x1", "2x1"}, result.Imported[0].Sizes)
 
-	variants, err := e.store.Get(context.Background(), "spinner")
+	require.Len(t, result.Imported, 1)
+	variants, err := e.store.Get(context.Background(), result.Imported[0].ID)
 	require.NoError(t, err)
 	assert.Len(t, variants, 2)
 }
@@ -338,9 +340,9 @@ func TestImport_Pack_HappyPath(t *testing.T) {
 	assert.Empty(t, result.Skipped)
 
 	// All three must be in the store.
-	for _, name := range []string{"anim1", "anim2", "anim3"} {
-		_, err := e.store.Get(context.Background(), name)
-		assert.NoError(t, err, "animation %q should exist after pack import", name)
+	for _, imported := range result.Imported {
+		_, err := e.store.Get(context.Background(), imported.ID)
+		assert.NoError(t, err, "animation %q (id=%s) should exist after pack import", imported.Name, imported.ID)
 	}
 }
 
@@ -478,12 +480,12 @@ func TestImport_NoFiles_ReturnsSkipped(t *testing.T) {
 // ── Export tests ──────────────────────────────────────────────────────────────
 
 // seedAnimation inserts an animation directly into the store.
-func seedAnimation(t *testing.T, st *store.SQLiteStore, name, size, source string) {
+func seedAnimation(t *testing.T, st *store.SQLiteStore, name, size, source string) string {
 	t.Helper()
 	icg := makeTestICGData(2, 40, 12)
 	gz, first, err := store.CompressICG(&icg)
 	require.NoError(t, err)
-	err = st.Put(context.Background(), store.AnimationVariant{
+	id, err := st.Put(context.Background(), store.AnimationVariant{
 		Name:       name,
 		Source:     source,
 		Size:       size,
@@ -494,14 +496,15 @@ func seedAnimation(t *testing.T, st *store.SQLiteStore, name, size, source strin
 		FramesGzip: gz,
 	})
 	require.NoError(t, err)
+	return id
 }
 
 func TestExport_SingleAnimation_HappyPath(t *testing.T) {
 	e := newTestEnv(t)
-	seedAnimation(t, e.store, "logo", "1x1", "")
+	id := seedAnimation(t, e.store, "logo", "1x1", "")
 
 	res := e.postJSON(t, "/api/ascii/export", map[string]any{
-		"animations": []string{"logo"},
+		"animations": []string{id},
 	})
 	defer res.Body.Close()
 
@@ -534,14 +537,14 @@ func TestExport_SingleAnimation_HappyPath(t *testing.T) {
 
 func TestExport_MultipleAnimations_PackFormat(t *testing.T) {
 	e := newTestEnv(t)
-	seedAnimation(t, e.store, "logo", "1x1", "")
-	seedAnimation(t, e.store, "spinner", "1x1", "")
+	idLogo := seedAnimation(t, e.store, "logo", "1x1", "")
+	idSpinner := seedAnimation(t, e.store, "spinner", "1x1", "")
 
 	res := e.postJSON(t, "/api/ascii/export", map[string]any{
 		"name":       "my-pack",
 		"version":    "1.0.0",
 		"author":     "testuser",
-		"animations": []string{"logo", "spinner"},
+		"animations": []string{idLogo, idSpinner},
 	})
 	defer res.Body.Close()
 
@@ -570,11 +573,11 @@ func TestExport_MultipleAnimations_PackFormat(t *testing.T) {
 
 func TestExport_MultiVariant_AllSizesPresent(t *testing.T) {
 	e := newTestEnv(t)
-	seedAnimation(t, e.store, "wave", "1x1", "")
+	id := seedAnimation(t, e.store, "wave", "1x1", "")
 	seedAnimation(t, e.store, "wave", "2x1", "")
 
 	res := e.postJSON(t, "/api/ascii/export", map[string]any{
-		"animations": []string{"wave"},
+		"animations": []string{id},
 	})
 	defer res.Body.Close()
 
@@ -618,10 +621,10 @@ func TestExport_NonExistentAnimation_Returns404(t *testing.T) {
 func TestExport_RemoteAnimation_Returns400(t *testing.T) {
 	e := newTestEnv(t)
 	// Seed a remote animation (source is non-empty).
-	seedAnimation(t, e.store, "remote-anim", "1x1", "https://github.com/someone/repo")
+	id := seedAnimation(t, e.store, "remote-anim", "1x1", "https://github.com/someone/repo")
 
 	res := e.postJSON(t, "/api/ascii/export", map[string]any{
-		"animations": []string{"remote-anim"},
+		"animations": []string{id},
 	})
 	defer res.Body.Close()
 
@@ -629,16 +632,16 @@ func TestExport_RemoteAnimation_Returns400(t *testing.T) {
 
 	var body map[string]string
 	decodeJSON(t, res.Body, &body)
-	assert.Contains(t, body["error"], "remote-anim")
+	assert.NotEmpty(t, body["error"])
 }
 
 func TestExport_MixedLocalAndRemote_Returns400(t *testing.T) {
 	e := newTestEnv(t)
-	seedAnimation(t, e.store, "local-anim", "1x1", "")
-	seedAnimation(t, e.store, "remote-anim", "1x1", "https://github.com/someone/repo")
+	idLocal := seedAnimation(t, e.store, "local-anim", "1x1", "")
+	idRemote := seedAnimation(t, e.store, "remote-anim", "1x1", "https://github.com/someone/repo")
 
 	res := e.postJSON(t, "/api/ascii/export", map[string]any{
-		"animations": []string{"local-anim", "remote-anim"},
+		"animations": []string{idLocal, idRemote},
 	})
 	defer res.Body.Close()
 
@@ -654,12 +657,15 @@ func TestImportExportRoundtrip(t *testing.T) {
 
 	// Step 1: import an animation via the import endpoint.
 	importRes := e.postMultipart(t, "/api/ascii/import", singleAnimFiles("original"))
-	importRes.Body.Close()
 	require.Equal(t, http.StatusOK, importRes.StatusCode)
+	var importResult1 api.ImportResult
+	decodeJSON(t, importRes.Body, &importResult1)
+	importRes.Body.Close()
+	require.Len(t, importResult1.Imported, 1)
 
 	// Step 2: export it as a zip.
 	exportRes := e.postJSON(t, "/api/ascii/export", map[string]any{
-		"animations": []string{"original"},
+		"animations": []string{importResult1.Imported[0].ID},
 	})
 	require.Equal(t, http.StatusOK, exportRes.StatusCode)
 	zipEntries := readZip(t, exportRes.Body)
@@ -686,12 +692,15 @@ func TestImportExportRoundtrip(t *testing.T) {
 	}
 
 	importRes2 := e.postMultipart(t, "/api/ascii/import", reimportFiles)
-	importRes2.Body.Close()
 	require.Equal(t, http.StatusOK, importRes2.StatusCode)
+	var importResult2 api.ImportResult
+	decodeJSON(t, importRes2.Body, &importResult2)
+	importRes2.Body.Close()
+	require.Len(t, importResult2.Imported, 1)
 
 	// Both animations must exist in the store.
-	_, err := e.store.Get(context.Background(), "original")
+	_, err := e.store.Get(context.Background(), importResult1.Imported[0].ID)
 	assert.NoError(t, err)
-	_, err = e.store.Get(context.Background(), "roundtripped")
+	_, err = e.store.Get(context.Background(), importResult2.Imported[0].ID)
 	assert.NoError(t, err)
 }

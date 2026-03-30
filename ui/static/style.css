@@ -1709,6 +1709,26 @@ a:hover {
     color: var(--text);
 }
 
+.widget-picker-group-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.75rem 0.75rem 0.25rem;
+}
+.widget-picker-group-author {
+    font-size: 0.6875rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-4, var(--text-3));
+    opacity: 0.7;
+}
+
 .widget-picker-item {
     display: flex;
     align-items: center;
@@ -2407,6 +2427,41 @@ a:hover {
 .ascii-gallery-btn:hover {
     background: rgba(0,0,0,0.65);
     border-color: rgba(255,255,255,0.6);
+}
+
+.ascii-pack-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    margin-top: 1.25rem;
+}
+.ascii-pack-header:first-child {
+    margin-top: 0;
+}
+.ascii-pack-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+}
+.ascii-pack-author {
+    font-size: 0.6875rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-4, var(--text-3));
+    opacity: 0.7;
+}
+.ascii-pack-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
 }
 
 /* Keep badge style */

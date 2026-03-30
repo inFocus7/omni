@@ -363,6 +363,18 @@ pack root directory:
 }
 ```
 
+Also ensure each animation's `meta.json` includes a `version` field (defaults to `1.0.0` if omitted):
+
+```json
+{
+  "name": "<animation-name>",
+  "version": "1.0.0",
+  ...
+}
+```
+
+On import, OMNI assigns a UUID to each animation. The animation `name` becomes the slug for display; the UUID is used internally as the widget ID (`ascii-{uuid}`).
+
 - `animations` must exactly match the subdirectory names inside the pack folder
 - Optional fields (`version`, `author`, `description`, `license`) can be omitted if the user didn't provide them
 
